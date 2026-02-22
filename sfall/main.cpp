@@ -68,6 +68,7 @@
 #include "Modules\ScriptExtender.h"
 #include "Modules\ScriptShaders.h"
 #include "Modules\Skills.h"
+#include "Modules\SocketBridge.h"
 #include "Modules\Sound.h"
 #include "Modules\SpeedPatch.h"
 #include "Modules\Stats.h"
@@ -169,6 +170,7 @@ static void InitModules() {
 	manager.add<QuestList>();
 	manager.add<Credits>();
 	manager.add<Console>();
+	manager.add<SocketBridge>();
 
 	// all built-in events(delegates) of modules should be executed before running the script handlers
 	manager.add<MetaruleExtender>();

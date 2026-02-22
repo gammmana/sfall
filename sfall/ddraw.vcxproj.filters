@@ -130,6 +130,9 @@
     <ClInclude Include="Modules\Skills.h">
       <Filter>Modules</Filter>
     </ClInclude>
+    <ClInclude Include="Modules\SocketBridge.h">
+      <Filter>Modules</Filter>
+    </ClInclude>
     <ClInclude Include="Modules\Sound.h">
       <Filter>Modules</Filter>
     </ClInclude>
@@ -554,6 +557,9 @@
       <Filter>Modules</Filter>
     </ClCompile>
     <ClCompile Include="Modules\Skills.cpp">
+      <Filter>Modules</Filter>
+    </ClCompile>
+    <ClCompile Include="Modules\SocketBridge.cpp">
       <Filter>Modules</Filter>
     </ClCompile>
     <ClCompile Include="Modules\Sound.cpp">

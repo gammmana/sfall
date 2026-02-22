@@ -491,6 +491,7 @@
     <ClInclude Include="Modules\Reputations.h" />
     <ClInclude Include="SafeWrite.h" />
     <ClInclude Include="Modules\Skills.h" />
+    <ClInclude Include="Modules\SocketBridge.h" />
     <ClInclude Include="Modules\Sound.h" />
     <ClInclude Include="Modules\Stats.h" />
     <ClInclude Include="Modules\Tiles.h" />
@@ -631,6 +632,7 @@
     <ClCompile Include="Modules\Scripting\ScriptValue.cpp" />
     <ClCompile Include="SafeWrite.cpp" />
     <ClCompile Include="Modules\Skills.cpp" />
+    <ClCompile Include="Modules\SocketBridge.cpp" />
     <ClCompile Include="Modules\Sound.cpp" />
     <ClCompile Include="Modules\Stats.cpp" />
     <ClCompile Include="Modules\Tiles.cpp" />
