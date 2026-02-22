@@ -186,8 +186,30 @@ callNext:
 	return 1;
 }
 
+static bool gLoadGameOnStartup = false;
+static bool gLoadGameOnStartupPending = false;
+static bool gLoadGameOnStartupConsumed = false;
+
+static bool IsMainMenuShown() {
+	long shown = 0;
+	__asm {
+		call fo::funcoffs::main_menu_is_shown_;
+		mov  shown, eax;
+	}
+	return shown != 0;
+}
+
 static long __stdcall main_menu_loop_hook() {
-	return (!reqGameQuit) ? fo::func::get_input() : VK_ESCAPE;
+	if (reqGameQuit) return VK_ESCAPE;
+
+	if (gLoadGameOnStartupPending && !gLoadGameOnStartupConsumed && IsMainMenuShown()) {
+		gLoadGameOnStartupConsumed = true;
+		gLoadGameOnStartupPending = false;
+		dlogr("Auto-load: injecting Load Game (l) from main menu.", DL_INIT);
+		return 'l';
+	}
+
+	return fo::func::get_input();
 }
 
 void WinProc::SetWindowProc() {
@@ -339,6 +361,10 @@ void WinProc::init() {
 
 	// Replace the engine GNW95_keyboard_hook_ with sfall implementation
 	SafeWrite32(0x4C9BD9, (DWORD)&GNW95_keyboard_hook); // GNW95_hook_keyboard_
+
+	gLoadGameOnStartup = (IniReader::GetConfigInt("Misc", "LoadGameOnStartup", 0) != 0);
+	gLoadGameOnStartupPending = gLoadGameOnStartup;
+	gLoadGameOnStartupConsumed = false;
 
 	HookCall(0x481B2A, main_menu_loop_hook);
 }
