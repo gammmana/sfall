@@ -35,6 +35,8 @@ static long moveWindowKey[2];
 static long windowData;
 
 static long reqGameQuit = 0;
+static bool autoJump2LoadScreenEnabled = false;
+static bool autoJump2LoadScreenPending = false;
 static bool isClosing = false;
 static bool cCursorShow = true;
 static bool bkgndErased = false;
@@ -187,7 +189,13 @@ callNext:
 }
 
 static long __stdcall main_menu_loop_hook() {
-	return (!reqGameQuit) ? fo::func::get_input() : VK_ESCAPE;
+	if (reqGameQuit) return VK_ESCAPE;
+
+	if (autoJump2LoadScreenEnabled && autoJump2LoadScreenPending) {
+		autoJump2LoadScreenPending = false;
+		return 'l';
+	}
+	return fo::func::get_input();
 }
 
 void WinProc::SetWindowProc() {
@@ -334,6 +342,9 @@ const POINT* WinProc::GetClientPos() {
 }
 
 void WinProc::init() {
+	autoJump2LoadScreenEnabled = (IniReader::GetConfigInt("Misc", "AutoJump2LoadScreen", 0) != 0);
+	autoJump2LoadScreenPending = autoJump2LoadScreenEnabled;
+
 	// Replace the engine WindowProc_ with sfall implementation
 	MakeJump(0x4DE9FC, WindowProc); // WindowProc_
 
