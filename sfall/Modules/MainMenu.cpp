@@ -38,6 +38,8 @@ long MainMenu::mYOffset;
 long MainMenu::mTextOffset; // sum: x + (y * w)
 
 static long OverrideColour, OverrideColour2;
+static bool autoJump2LoadScreenEnabled = false;
+static bool autoJump2LoadScreenPending = false;
 
 static __declspec(naked) void MainMenuHookButtonYOffset() {
 	static const DWORD MainMenuButtonYHookRet = 0x48184A;
@@ -72,7 +74,18 @@ static void __fastcall main_menu_create_hook_print_text(long xPos, const char* t
 	fo::func::win_print(winId, VerString1, sWidth, xPos + fWidth - sWidth, yPos, color); // sfall print
 }
 
+static long __stdcall main_menu_loop_hook() {
+	if (autoJump2LoadScreenEnabled && autoJump2LoadScreenPending) {
+		autoJump2LoadScreenPending = false;
+		return 'l';
+	}
+	return fo::func::get_input();
+}
+
 void MainMenu::init() {
+	autoJump2LoadScreenEnabled = (IniReader::GetConfigInt("Misc", "AutoJump2LoadScreen", 0) != 0);
+	autoJump2LoadScreenPending = autoJump2LoadScreenEnabled;
+
 	int offset;
 	if (offset = IniReader::GetConfigInt("Misc", "MainMenuCreditsOffsetX", 0)) {
 		SafeWrite32(0x481753, 15 + offset);
@@ -91,10 +104,14 @@ void MainMenu::init() {
 		if (mYOffset) MakeJump(0x481844, MainMenuHookButtonYOffset);
 
 		mTextOffset = mXOffset + (mYOffset * 640);
-		if (mTextOffset) MakeCall(0x481933, MainMenuHookTextYOffset, 1);
+	if (mTextOffset) MakeCall(0x481933, MainMenuHookTextYOffset, 1);
 	}
 
 	HookCall(0x4817AB, main_menu_create_hook_print_text);
+	if (HRP::Setting::ExternalEnabled()) {
+		// WinProc::init is skipped for external HRP, so install input hook here.
+		HookCall(0x481B2A, main_menu_loop_hook);
+	}
 
 	OverrideColour = IniReader::GetConfigInt("Misc", "MainMenuFontColour", 0);
 	if (OverrideColour & 0xFF) {
