@@ -37,6 +37,7 @@ static long windowData;
 static long reqGameQuit = 0;
 static bool autoJump2LoadScreenEnabled = false;
 static bool autoJump2LoadScreenPending = false;
+static bool autoJump2LoadScreenInit = false;
 static bool isClosing = false;
 static bool cCursorShow = true;
 static bool bkgndErased = false;
@@ -191,8 +192,15 @@ callNext:
 static long __stdcall main_menu_loop_hook() {
 	if (reqGameQuit) return VK_ESCAPE;
 
+	if (!autoJump2LoadScreenInit) {
+		autoJump2LoadScreenEnabled = (IniReader::GetConfigInt("Misc", "AutoJump2LoadScreen", 0) != 0);
+		autoJump2LoadScreenPending = autoJump2LoadScreenEnabled;
+		autoJump2LoadScreenInit = true;
+	}
+
 	if (autoJump2LoadScreenEnabled && autoJump2LoadScreenPending) {
 		autoJump2LoadScreenPending = false;
+		dlogr("AutoJump2LoadScreen: injecting Load Game hotkey.", DL_MAIN);
 		return 'l';
 	}
 	return fo::func::get_input();
@@ -342,8 +350,9 @@ const POINT* WinProc::GetClientPos() {
 }
 
 void WinProc::init() {
-	autoJump2LoadScreenEnabled = (IniReader::GetConfigInt("Misc", "AutoJump2LoadScreen", 0) != 0);
-	autoJump2LoadScreenPending = autoJump2LoadScreenEnabled;
+	autoJump2LoadScreenEnabled = false;
+	autoJump2LoadScreenPending = false;
+	autoJump2LoadScreenInit = false;
 
 	// Replace the engine WindowProc_ with sfall implementation
 	MakeJump(0x4DE9FC, WindowProc); // WindowProc_

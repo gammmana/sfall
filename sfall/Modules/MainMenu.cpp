@@ -77,6 +77,7 @@ static void __fastcall main_menu_create_hook_print_text(long xPos, const char* t
 static long __stdcall main_menu_loop_hook() {
 	if (autoJump2LoadScreenEnabled && autoJump2LoadScreenPending) {
 		autoJump2LoadScreenPending = false;
+		dlogr("AutoJump2LoadScreen: injecting Load Game hotkey (MainMenu fallback).", DL_MAIN);
 		return 'l';
 	}
 	return fo::func::get_input();
