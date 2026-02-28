@@ -12,14 +12,44 @@ fi
 
 WINE="${WINE:-wine}"
 WINEDEBUG="${WINEDEBUG:--all}"
-SFALL_WINEPREFIX="${SFALL_WINEPREFIX:-/Users/mark/Applications/Sikarugir/devFO2.app/Contents/SharedSupport/prefix}"
+DEFAULT_PREFIX_DIR="$(cd "$ROOT/../../../../.." && pwd)"
+MY_MSVC_UNIX_ROOT="${MY_MSVC_UNIX_ROOT:-$ROOT/../../../tools/my_msvc}"
+DEFAULT_VC_ROOT="C:\\PROG~5P2\\MICR~HMH.0\\VC"
+DEFAULT_CL="C:\\PROG~5P2\\MICR~HMH.0\\VC\\bin\\cl.exe"
+DEFAULT_LINK="C:\\PROG~5P2\\MICR~HMH.0\\VC\\bin\\link.exe"
+DEFAULT_RC="C:\\ssl\\tools\\my_msvc\\kits\\10\\bin\\10.0.26100.0\\x64\\rc.exe"
+DEFAULT_UCRT_INCLUDE_ROOT="C:\\ssl\\tools\\my_msvc\\kits\\10\\Include\\10.0.26100.0"
+DEFAULT_UCRT_LIB_ROOT="C:\\ssl\\tools\\my_msvc\\kits\\10\\Lib\\10.0.26100.0"
+MSVC_VERSION=""
+KIT_VERSION=""
 
-SFALL_VS14_VC_ROOT="${SFALL_VS14_VC_ROOT:-C:\\PROG~5P2\\MICR~HMH.0\\VC}"
-SFALL_VS14_CL="${SFALL_VS14_CL:-C:\\PROG~5P2\\MICR~HMH.0\\VC\\bin\\cl.exe}"
-SFALL_VS14_LINK="${SFALL_VS14_LINK:-C:\\PROG~5P2\\MICR~HMH.0\\VC\\bin\\link.exe}"
-SFALL_VS14_RC="${SFALL_VS14_RC:-C:\\ssl\\tools\\my_msvc\\kits\\10\\bin\\10.0.26100.0\\x64\\rc.exe}"
-SFALL_UCRT_INCLUDE_ROOT="${SFALL_UCRT_INCLUDE_ROOT:-C:\\ssl\\tools\\my_msvc\\kits\\10\\Include\\10.0.26100.0}"
-SFALL_UCRT_LIB_ROOT="${SFALL_UCRT_LIB_ROOT:-C:\\ssl\\tools\\my_msvc\\kits\\10\\Lib\\10.0.26100.0}"
+if [[ -d "${MY_MSVC_UNIX_ROOT}/VC/Tools/MSVC" ]]; then
+  MSVC_VERSION="$(LC_ALL=C ls -1 "${MY_MSVC_UNIX_ROOT}/VC/Tools/MSVC" 2>/dev/null | tail -n1 || true)"
+fi
+
+if [[ -d "${MY_MSVC_UNIX_ROOT}/Windows Kits/10/Include" ]]; then
+  KIT_VERSION="$(LC_ALL=C ls -1 "${MY_MSVC_UNIX_ROOT}/Windows Kits/10/Include" 2>/dev/null | tail -n1 || true)"
+fi
+
+if [[ -n "${MSVC_VERSION}" ]]; then
+  DEFAULT_VC_ROOT="C:\\ssl\\tools\\my_msvc\\VC\\Tools\\MSVC\\${MSVC_VERSION}"
+  DEFAULT_CL="${DEFAULT_VC_ROOT}\\bin\\Hostx64\\x86\\cl.exe"
+  DEFAULT_LINK="${DEFAULT_VC_ROOT}\\bin\\Hostx64\\x86\\link.exe"
+fi
+
+if [[ -n "${KIT_VERSION}" ]]; then
+  DEFAULT_RC="C:\\ssl\\tools\\my_msvc\\kits\\10\\bin\\${KIT_VERSION}\\x64\\rc.exe"
+  DEFAULT_UCRT_INCLUDE_ROOT="C:\\ssl\\tools\\my_msvc\\kits\\10\\Include\\${KIT_VERSION}"
+  DEFAULT_UCRT_LIB_ROOT="C:\\ssl\\tools\\my_msvc\\kits\\10\\Lib\\${KIT_VERSION}"
+fi
+
+SFALL_WINEPREFIX="${SFALL_WINEPREFIX:-$DEFAULT_PREFIX_DIR}"
+SFALL_VS14_VC_ROOT="${SFALL_VS14_VC_ROOT:-$DEFAULT_VC_ROOT}"
+SFALL_VS14_CL="${SFALL_VS14_CL:-$DEFAULT_CL}"
+SFALL_VS14_LINK="${SFALL_VS14_LINK:-$DEFAULT_LINK}"
+SFALL_VS14_RC="${SFALL_VS14_RC:-$DEFAULT_RC}"
+SFALL_UCRT_INCLUDE_ROOT="${SFALL_UCRT_INCLUDE_ROOT:-$DEFAULT_UCRT_INCLUDE_ROOT}"
+SFALL_UCRT_LIB_ROOT="${SFALL_UCRT_LIB_ROOT:-$DEFAULT_UCRT_LIB_ROOT}"
 
 # DXSDK selection per upstream README:
 # - Base include/libs from June 2010
@@ -89,8 +119,16 @@ DXLIB_AUG2007_W="$(winepath_w "$DXLIB_AUG2007_DIR")"
 DDRAW_FEB2010_W="$(winepath_w "$DXLIB_FEB2010_DIR/ddraw.lib")"
 DINPUT_AUG2007_W="$(winepath_w "$DXLIB_AUG2007_DIR/dinput.lib")"
 
+VC_LIB_WIN="${SFALL_VS14_VC_ROOT}\\lib"
+VC_ATLMFC_LIB_WIN="${SFALL_VS14_VC_ROOT}\\atlmfc\\lib"
+# msvc-wine/my_msvc layout stores x86 libs under lib\x86 and atlmfc\lib\x86.
+if [[ "${SFALL_VS14_VC_ROOT}" == *"\\VC\\Tools\\MSVC\\"* ]]; then
+  VC_LIB_WIN="${VC_LIB_WIN}\\x86"
+  VC_ATLMFC_LIB_WIN="${VC_ATLMFC_LIB_WIN}\\x86"
+fi
+
 INCLUDE_WIN="${SFALL_VS14_VC_ROOT}\\include;${SFALL_VS14_VC_ROOT}\\atlmfc\\include;${SFALL_UCRT_INCLUDE_ROOT}\\shared;${SFALL_UCRT_INCLUDE_ROOT}\\ucrt;${SFALL_UCRT_INCLUDE_ROOT}\\um;${DXINC_W};${ROOT_W}"
-LIB_WIN="${SFALL_VS14_VC_ROOT}\\lib;${SFALL_VS14_VC_ROOT}\\atlmfc\\lib;${SFALL_UCRT_LIB_ROOT}\\ucrt\\x86;${SFALL_UCRT_LIB_ROOT}\\um\\x86;${DXLIB_JUN2010_W};${DXLIB_FEB2010_W};${DXLIB_AUG2007_W}"
+LIB_WIN="${VC_LIB_WIN};${VC_ATLMFC_LIB_WIN};${SFALL_UCRT_LIB_ROOT}\\ucrt\\x86;${SFALL_UCRT_LIB_ROOT}\\um\\x86;${DXLIB_JUN2010_W};${DXLIB_FEB2010_W};${DXLIB_AUG2007_W}"
 WINEPATH_WIN="$(dirname "$SFALL_VS14_CL");$(dirname "$SFALL_VS14_LINK");$(dirname "$SFALL_VS14_RC")"
 
 mapfile -t SOURCES < <(grep -oE 'ClCompile Include="[^"]+"' ddraw.vcxproj | sed -E 's/^ClCompile Include="//; s/"$//')
