@@ -19,6 +19,7 @@
 #include <fstream>
 
 #include "..\main.h"
+#include "..\FalloutEngine\Fallout2.h"
 #include "..\Modules\LoadGameHook.h"
 
 #include "..\HRP\Init.h"
@@ -30,14 +31,70 @@ namespace sfall
 
 static std::ofstream consoleFile;
 static long printCount = 0;
+static bool messageBoxToDebugLogEnabled = false;
 
-static void __fastcall ConsoleFilePrint(const char* msg) {
-	consoleFile << msg << '\n';
+static constexpr long kConsoleFlushInterval = 20;
+static constexpr size_t kMessageWrapWidth = 30;
 
-	if (++printCount >= 20) {
-		printCount = 0;
-		consoleFile.flush();
+static void PrintWrappedMessageLine(const char* line, size_t length) {
+	if (length == 0) {
+		fo::func::debug_printf("| \n");
+		return;
 	}
+
+	size_t offset = 0;
+	while (offset < length) {
+		size_t chunkLen = length - offset;
+		if (chunkLen > kMessageWrapWidth) chunkLen = kMessageWrapWidth;
+		fo::func::debug_printf("| %.*s\n", static_cast<int>(chunkLen), line + offset);
+		offset += chunkLen;
+	}
+}
+
+static void PrintMessageToDebugLog(const char* msg) {
+	if (!messageBoxToDebugLogEnabled || !msg || *msg == '\0') return;
+
+	fo::func::debug_printf("------------------------------\n");
+	fo::func::debug_printf("| Msg_Box Newline\n");
+	fo::func::debug_printf("------------------------------\n");
+
+	const char* lineStart = msg;
+	const char* cursor = msg;
+	while (*cursor) {
+		if (*cursor == '\n') {
+			PrintWrappedMessageLine(lineStart, static_cast<size_t>(cursor - lineStart));
+			cursor++;
+			lineStart = cursor;
+			continue;
+		}
+
+		if (*cursor == '\\' && cursor[1] == 'n') {
+			PrintWrappedMessageLine(lineStart, static_cast<size_t>(cursor - lineStart));
+			cursor += 2;
+			lineStart = cursor;
+			continue;
+		}
+
+		cursor++;
+	}
+
+	PrintWrappedMessageLine(lineStart, static_cast<size_t>(cursor - lineStart));
+	fo::func::debug_printf("------------------------------\n");
+}
+
+static void __fastcall ConsoleOutputPrint(const char* msg) {
+	if (!msg) return;
+
+	if (consoleFile.is_open()) {
+		consoleFile << msg << '\n';
+
+		if (++printCount >= kConsoleFlushInterval) {
+			printCount = 0;
+			consoleFile.flush();
+		}
+	}
+
+	PrintMessageToDebugLog(msg);
 }
 
 static __declspec(naked) void display_print_hack() {
@@ -50,33 +107,38 @@ static __declspec(naked) void display_print_hack() {
 		push edi;
 		mov  ebx, eax;
 		mov  ecx, eax;
-		call ConsoleFilePrint;
+		call ConsoleOutputPrint;
 		mov  eax, ebx;
 		jmp  display_print_Ret;
 	}
 }
 
 void Console::PrintFile(const char* msg) {
-	if (consoleFile.is_open()) ConsoleFilePrint(msg);
+	ConsoleOutputPrint(msg);
 }
 
 void Console::init() {
+	messageBoxToDebugLogEnabled = (IniReader::GetIntDefaultConfig("Debugging", "MessageBoxToDebugLog", 0) != 0);
+
 	auto path = IniReader::GetConfigString("Misc", "ConsoleOutputPath", "");
 	if (!path.empty()) {
 		consoleFile.open(path);
 		if (consoleFile.is_open()) {
-			if (!HRP::Setting::IsEnabled()) MakeJump(0x43186C, display_print_hack);
-
 			LoadGameHook::OnGameReset() += []() {
 				printCount = 0;
 				consoleFile.flush();
 			};
 		}
 	}
+
+	if (!HRP::Setting::IsEnabled() && (consoleFile.is_open() || messageBoxToDebugLogEnabled)) {
+		MakeJump(0x43186C, display_print_hack);
+	}
 }
 
 void Console::exit() {
 	if (consoleFile.is_open()) consoleFile.close();
+	messageBoxToDebugLogEnabled = false;
 }
 
 }
