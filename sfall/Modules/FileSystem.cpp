@@ -535,7 +535,6 @@ DWORD __stdcall FScreate(const char* path, int size) {
 
 DWORD __stdcall FScopy(const char* path, const char* source) {
 	int result = FSfind(path);
-	if (result != -1) return result;
 
 	DWORD fsize;
 	sFile* file;
@@ -562,6 +561,14 @@ DWORD __stdcall FScopy(const char* path, const char* source) {
 		mov  eax, source;
 		mov  edx, fdata;
 		call fo::funcoffs::db_read_to_buf_;
+	}
+
+	if (result != -1) {
+		if (files[result].data) delete[] files[result].data;
+		files[result].data = fdata;
+		files[result].length = fsize;
+		files[result].wpos = 0;
+		return result;
 	}
 
 	fsFile* fsfile = nullptr;
