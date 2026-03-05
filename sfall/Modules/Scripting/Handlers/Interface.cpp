@@ -121,6 +121,7 @@ enum BridgeActionId : long {
 	BRIDGE_ACTION_TALK          = 5,
 	BRIDGE_ACTION_SKILL_ON      = 6,
 	BRIDGE_ACTION_USE_ITEM_ON   = 7,
+	BRIDGE_ACTION_USE_ACTIVE_HAND = 8,
 };
 
 enum BridgeActionStatus : long {
@@ -603,6 +604,14 @@ void mf_bridge_action(OpcodeContext& ctx) {
 		result = fo::func::action_use_an_item_on_object(fo::var::obj_dude, target, useItem);
 		break;
 	}
+	case BRIDGE_ACTION_USE_ACTIVE_HAND:
+		if (fo::var::intfaceEnabled == 0) {
+			result = BRIDGE_STATUS_BLOCKED_MODE;
+			break;
+		}
+		fo::func::intface_use_item();
+		result = BRIDGE_STATUS_OK;
+		break;
 	default:
 		result = BRIDGE_STATUS_UNKNOWN_ACTION;
 		break;
