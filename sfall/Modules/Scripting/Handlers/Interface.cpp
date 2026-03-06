@@ -122,6 +122,7 @@ enum BridgeActionId : long {
 	BRIDGE_ACTION_SKILL_ON      = 6,
 	BRIDGE_ACTION_USE_ITEM_ON   = 7,
 	BRIDGE_ACTION_USE_ACTIVE_HAND = 8,
+	BRIDGE_ACTION_INC_SKILL_POINT = 9,
 };
 
 enum BridgeActionStatus : long {
@@ -513,6 +514,25 @@ void mf_get_cursor_mode(OpcodeContext& ctx) {
 	ctx.setReturn(fo::var::gmouse_3d_current_mode);
 }
 
+static void BridgeRefreshCharacterScreen() {
+	__asm {
+		mov  eax, ds:[FO_VAR_obj_dude];
+		call fo::funcoffs::stat_recalc_derived_;
+		xor  edx, edx;
+		mov  eax, ds:[FO_VAR_obj_dude];
+		call fo::funcoffs::critter_adjust_hits_;
+		push ebx;
+		mov  eax, 7;
+		call fo::funcoffs::PrintBasicStat_;
+		xor  eax, eax;
+		call fo::funcoffs::ListSkills_;
+		call fo::funcoffs::PrintLevelWin_;
+		call fo::funcoffs::ListDrvdStats_;
+		pop  ebx;
+	}
+	fo::func::win_draw(fo::var::edit_win);
+}
+
 void mf_bridge_action(OpcodeContext& ctx) {
 	const long actionId = ctx.arg(0).rawValue();
 	fo::GameObject* target = reinterpret_cast<fo::GameObject*>(ctx.arg(1).rawValue());
@@ -612,6 +632,20 @@ void mf_bridge_action(OpcodeContext& ctx) {
 		fo::func::intface_use_item();
 		result = BRIDGE_STATUS_OK;
 		break;
+	case BRIDGE_ACTION_INC_SKILL_POINT:
+		if ((GetLoopFlags() & CHARSCREEN) == 0) {
+			result = BRIDGE_STATUS_BLOCKED_MODE;
+			break;
+		}
+		if (arg0 < 0 || arg0 >= fo::Skill::SKILL_count) {
+			result = BRIDGE_STATUS_INVALID_ARG;
+			break;
+		}
+		result = fo::func::skill_inc_point(fo::var::obj_dude, arg0);
+		if (result == BRIDGE_STATUS_OK) {
+			BridgeRefreshCharacterScreen();
+		}
+		break;
 	default:
 		result = BRIDGE_STATUS_UNKNOWN_ACTION;
 		break;
@@ -708,22 +742,7 @@ void mf_display_stats(OpcodeContext& ctx) {
 	if (flags & LoopFlag::INVENTORY) {
 		fo::func::display_stats(); // calling the function outside of inventory screen will crash the game
 	} else if (flags & LoopFlag::CHARSCREEN) {
-		__asm {
-			mov  eax, ds:[FO_VAR_obj_dude];
-			call fo::funcoffs::stat_recalc_derived_;
-			xor  edx, edx;
-			mov  eax, ds:[FO_VAR_obj_dude];
-			call fo::funcoffs::critter_adjust_hits_;
-			push ebx;
-			mov  eax, 7;
-			call fo::funcoffs::PrintBasicStat_;
-			xor  eax, eax;
-			call fo::funcoffs::ListSkills_;
-			call fo::funcoffs::PrintLevelWin_;
-			call fo::funcoffs::ListDrvdStats_;
-			pop  ebx;
-		}
-		fo::func::win_draw(fo::var::edit_win);
+		BridgeRefreshCharacterScreen();
 	}
 }
 

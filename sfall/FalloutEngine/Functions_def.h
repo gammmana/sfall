@@ -271,6 +271,7 @@ WRAP_WATCOM_FUNC2(long, scr_ptr, long, scriptId, fo::ScriptInstance**, scriptPtr
 WRAP_WATCOM_FUNC1(long, scr_remove, long, scriptID)
 WRAP_WATCOM_FUNC1(void, set_focus_func, void*, func)
 WRAP_WATCOM_FUNC2(long, skill_dec_point_force, fo::GameObject*, critter, long, skill)
+WRAP_WATCOM_FUNC2(long, skill_inc_point, fo::GameObject*, critter, long, skill)
 WRAP_WATCOM_FUNC2(long, skill_inc_point_force, fo::GameObject*, critter, long, skill)
 WRAP_WATCOM_FUNC1(long, skill_is_tagged, long, skill)
 WRAP_WATCOM_FUNC2(long, skill_level, fo::GameObject*, critter, long, statID)
