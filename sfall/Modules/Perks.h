@@ -18,10 +18,24 @@
 
 #pragma once
 
+#include <vector>
+
 #include "Module.h"
 
 namespace sfall
 {
+
+enum PerkDialogMode {
+	PERK_DIALOG_MODE_NONE = 0,
+	PERK_DIALOG_MODE_PERK_PICK = 1,
+	PERK_DIALOG_MODE_TAG_PICK = 2,
+	PERK_DIALOG_MODE_MUTATE_PICK = 3,
+};
+
+struct PerkDialogOptionState {
+	long perkId;
+	const char* name;
+};
 
 class Perks : public Module {
 private:
@@ -68,6 +82,11 @@ public:
 void PerksEnterCharScreen();
 void PerksCancelCharScreen();
 void PerksAcceptCharScreen();
+
+void SetPerkDialogMode(PerkDialogMode mode);
+PerkDialogMode GetPerkDialogMode();
+bool IsPerkDialogWindowOpen();
+void GetPerkDialogOptions(std::vector<PerkDialogOptionState>& options);
 
 void __stdcall IgnoreDefaultPerks();
 void __stdcall RestoreDefaultPerks();

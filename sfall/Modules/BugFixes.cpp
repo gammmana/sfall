@@ -26,6 +26,7 @@
 
 #include "Drugs.h"
 #include "LoadGameHook.h"
+#include "Perks.h"
 #include "ScriptExtender.h"
 #include "Worldmap.h"
 
@@ -3542,11 +3543,24 @@ skip:
 static bool pickedTag = false;
 static bool pickedMutate = false;
 
+static void __stdcall SetTagPerkDialogMode() {
+	SetPerkDialogMode(PERK_DIALOG_MODE_TAG_PICK);
+}
+
+static void __stdcall SetMutatePerkDialogMode() {
+	SetPerkDialogMode(PERK_DIALOG_MODE_MUTATE_PICK);
+}
+
+static void __stdcall ClearPerkDialogMode() {
+	SetPerkDialogMode(PERK_DIALOG_MODE_NONE);
+}
+
 static __declspec(naked) void perks_dialog_hook_tag() {
 	static const DWORD perks_dialog_tag_Ret = 0x43C9C5;
 	__asm {
 		cmp  pickedTag, 0;
 		jne  skip;
+		call SetTagPerkDialogMode;
 		call fo::funcoffs::Add4thTagSkill_;
 		mov  pickedTag, al;
 		retn;
@@ -3561,6 +3575,7 @@ static __declspec(naked) void perks_dialog_hook_mutate() {
 	__asm {
 		cmp  pickedMutate, 0;
 		jne  skip;
+		call SetMutatePerkDialogMode;
 		call fo::funcoffs::GetMutateTrait_;
 		mov  pickedMutate, al;
 		retn;
@@ -3574,6 +3589,9 @@ static __declspec(naked) void editor_design_hook() {
 	__asm { // eax = 0
 		mov  pickedTag, al;
 		mov  pickedMutate, al;
+		push eax;
+		call ClearPerkDialogMode;
+		pop  eax;
 		jmp  fo::funcoffs::intface_update_hit_points_;
 	}
 }

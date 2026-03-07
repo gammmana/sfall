@@ -19,6 +19,7 @@
 #include "..\..\..\FalloutEngine\AsmMacros.h"
 #include "..\..\..\FalloutEngine\Fallout2.h"
 
+#include "..\Arrays.h"
 #include "..\..\Perks.h"
 #include "..\..\ScriptExtender.h"
 #include "..\OpcodeContext.h"
@@ -220,6 +221,36 @@ void mf_has_fake_trait_npc(OpcodeContext& ctx) {
 	} else {
 		ctx.printOpcodeError(notPartyMemberErr, ctx.getMetaruleName());
 	}
+	ctx.setReturn(result);
+}
+
+void mf_perk_dialog_state(OpcodeContext& ctx) {
+	DWORD result = CreateTempArray(-1, 0);
+	DWORD optionsArray = CreateTempArray(0, 0);
+
+	SetArray(result, ScriptValue("active"), ScriptValue(0), false);
+	SetArray(result, ScriptValue("count"), ScriptValue(0), false);
+	SetArray(result, ScriptValue("options"), ScriptValue(optionsArray), false);
+
+	if (GetPerkDialogMode() != PERK_DIALOG_MODE_PERK_PICK || !IsPerkDialogWindowOpen()) {
+		ctx.setReturn(result);
+		return;
+	}
+
+	std::vector<PerkDialogOptionState> options;
+	GetPerkDialogOptions(options);
+
+	optionsArray = CreateTempArray(static_cast<long>(options.size()), 0);
+	for (size_t index = 0; index < options.size(); index++) {
+		DWORD optionEntry = CreateTempArray(-1, 0);
+		SetArray(optionEntry, ScriptValue("perk_id"), ScriptValue(options[index].perkId), false);
+		SetArray(optionEntry, ScriptValue("name"), ScriptValue((options[index].name) ? options[index].name : ""), false);
+		SetArray(optionsArray, static_cast<long>(index), optionEntry);
+	}
+
+	SetArray(result, ScriptValue("active"), ScriptValue(1), false);
+	SetArray(result, ScriptValue("count"), ScriptValue(static_cast<long>(options.size())), false);
+	SetArray(result, ScriptValue("options"), ScriptValue(optionsArray), false);
 	ctx.setReturn(result);
 }
 

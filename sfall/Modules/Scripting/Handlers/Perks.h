@@ -65,6 +65,8 @@ void mf_has_fake_perk_npc(OpcodeContext&);
 
 void mf_has_fake_trait_npc(OpcodeContext&);
 
+void mf_perk_dialog_state(OpcodeContext&);
+
 void op_perk_add_mode();
 
 void op_remove_trait();

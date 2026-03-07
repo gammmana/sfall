@@ -16,6 +16,7 @@
  *    along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
+#include <algorithm>
 #include <vector>
 
 #include "..\main.h"
@@ -111,6 +112,10 @@ static bool disableTraits[fo::Trait::TRAIT_count];
 static DWORD IgnoringDefaultPerks = 0;
 
 static DWORD PerkFreqOverride = 0;
+static PerkDialogMode perkDialogMode = PERK_DIALOG_MODE_NONE;
+
+static const long perkDialogWindowWidth = 573;
+static const long perkDialogWindowHeight = 230;
 
 static const DWORD GainStatPerks[] = {
 	0x4AF112, // Strength
@@ -201,6 +206,77 @@ static bool IsOwnedFake(int ownerId) {
 
 static bool IsNotOwnedFake(int ownerId1, int ownerId2) {
 	return (ownerId1 != ownerId2);
+}
+
+void SetPerkDialogMode(PerkDialogMode mode) {
+	perkDialogMode = mode;
+}
+
+PerkDialogMode GetPerkDialogMode() {
+	return perkDialogMode;
+}
+
+static bool IsPerkDialogCandidateWindow(const fo::Window* win) {
+	if (!win) return false;
+	if (win->width != perkDialogWindowWidth || win->height != perkDialogWindowHeight) return false;
+	if (win->flags & fo::WinFlags::Hidden) return false;
+	if ((win->flags & fo::WinFlags::Exclusive) == 0) return false;
+	if ((win->flags & fo::WinFlags::DontMoveTop) == 0) return false;
+	return true;
+}
+
+bool IsPerkDialogWindowOpen() {
+	if ((GetLoopFlags() & CHARSCREEN) == 0) return false;
+	if (fo::var::edit_win <= 0 || fo::func::GNW_find(fo::var::edit_win) == nullptr) return false;
+
+	for (long index = fo::var::num_windows - 1; index >= 0; index--) {
+		if (IsPerkDialogCandidateWindow(fo::var::window[index])) {
+			return true;
+		}
+	}
+	return false;
+}
+
+static void AddPerkDialogOption(std::vector<PerkDialogOptionState>& options, long perkId, const char* name) {
+	PerkDialogOptionState option = {perkId, (name) ? name : ""};
+	options.push_back(option);
+}
+
+void GetPerkDialogOptions(std::vector<PerkDialogOptionState>& options) {
+	options.clear();
+	if (!fo::var::obj_dude) return;
+
+	if (IgnoringDefaultPerks == 0) {
+		for (long perkId = 0; perkId < fo::Perk::PERK_count; perkId++) {
+			if (fo::func::perk_can_add(fo::var::obj_dude, perkId)) {
+				AddPerkDialogOption(options, perkId, perks[perkId].name);
+			}
+		}
+	}
+
+	if (!PartyControl::IsNpcControlled()) {
+		for (size_t index = 0; index < extPerks.size(); index++) {
+			if (fo::func::perk_can_add(fo::var::obj_dude, extPerks[index].id)) {
+				AddPerkDialogOption(options, extPerks[index].id, extPerks[index].Name);
+			}
+		}
+	}
+
+	for (size_t index = 0; index < fakeSelectablePerks.size(); index++) {
+		if (IsOwnedFake(fakeSelectablePerks[index].ownerId)) {
+			AddPerkDialogOption(options, startFakeID + index, fakeSelectablePerks[index].Name);
+		}
+	}
+
+	std::sort(options.begin(), options.end(), [](const PerkDialogOptionState& lhs, const PerkDialogOptionState& rhs) {
+		const char* leftName = (lhs.name) ? lhs.name : "";
+		const char* rightName = (rhs.name) ? rhs.name : "";
+		int diff = _stricmp(leftName, rightName);
+		if (diff != 0) return diff < 0;
+		diff = strcmp(leftName, rightName);
+		if (diff != 0) return diff < 0;
+		return lhs.perkId < rhs.perkId;
+	});
 }
 
 void Perks::SetSelectablePerk(const char* name, int active, int image, const char* desc, int npcID) {
@@ -504,6 +580,10 @@ static DWORD __stdcall HandleExtraSelectablePerks(DWORD available, DWORD* data) 
 		}
 	}
 	return available; // total number of perks available for selection
+}
+
+static void __stdcall SetPerkDialogModeFromListCount(long count) {
+	SetPerkDialogMode((count > 0) ? PERK_DIALOG_MODE_PERK_PICK : PERK_DIALOG_MODE_NONE);
 }
 
 static __declspec(naked) void GetAvailablePerksHook() {
@@ -1125,6 +1205,10 @@ static __declspec(naked) void perks_dialog_hook() {
 	static const DWORD perks_dialog_Ret = 0x43C92F;
 	__asm {
 		call fo::funcoffs::ListDPerks_;
+		push eax;
+		push eax;
+		call SetPerkDialogModeFromListCount;
+		pop  eax;
 		test eax, eax;
 		jz   dlgExit;
 		retn;
@@ -1236,6 +1320,7 @@ void PerksReset() {
 	IgnoringDefaultPerks = 0;
 	addPerkMode = 2;
 	PerkFreqOverride = 0;
+	perkDialogMode = PERK_DIALOG_MODE_NONE;
 
 	if (PerkBoxTitle[0] != 0) {
 		PerkBoxTitle[0] = 0;
@@ -1371,9 +1456,11 @@ void PerksEnterCharScreen() {
 	RemoveTraitID = -1;
 	RemovePerkID.clear();
 	RemoveSelectableID.clear();
+	perkDialogMode = PERK_DIALOG_MODE_NONE;
 }
 
 void PerksCancelCharScreen() {
+	perkDialogMode = PERK_DIALOG_MODE_NONE;
 	if (RemoveTraitID != -1) {
 		fakeTraits.erase(fakeTraits.begin() + RemoveTraitID, fakeTraits.end());
 	}
@@ -1386,6 +1473,7 @@ void PerksCancelCharScreen() {
 }
 
 void PerksAcceptCharScreen() {
+	perkDialogMode = PERK_DIALOG_MODE_NONE;
 	if (RemoveSelectableID.size() > 1) {
 		RemoveSelectableID.sort();
 		RemoveSelectableID.unique();
