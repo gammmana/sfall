@@ -23,6 +23,7 @@
 #include "..\main.h"
 #include "..\FalloutEngine\Fallout2.h"
 #include "Graphics.h"
+#include "Console.h"
 #include "LoadGameHook.h"
 
 #include "Sound.h"
@@ -877,6 +878,10 @@ skip:
 
 static __declspec(naked) void ai_print_msg_hook() {
 	__asm {
+		pushad;
+		mov  ecx, eax;
+		call Console::PrintFloatToDebugLog;
+		popad;
 		push eax;
 		cmp  edx, FO_VAR_target_str;
 		jne  attacker;

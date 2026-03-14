@@ -218,6 +218,7 @@ WRAP_WATCOM_FUNC2(long, obj_pid_new, fo::GameObject*, object, long, pid)
 WRAP_WATCOM_FUNC1(long, obj_lock_is_jammed, fo::GameObject*, object) // Checks/unjams jammed locks
 WRAP_WATCOM_FUNC1(void, obj_unjam_lock, fo::GameObject*, object)
 WRAP_WATCOM_FUNC0(void, object_anim_compact)
+WRAP_WATCOM_FUNC1(const char*, object_name, fo::GameObject*, object)
 WRAP_WATCOM_FUNC1(long, partyMemberGetCurLevel, fo::GameObject*, obj)
 WRAP_WATCOM_FUNC1(void, pc_flag_off, long, flag)
 WRAP_WATCOM_FUNC1(void, pc_flag_on, long, flag)

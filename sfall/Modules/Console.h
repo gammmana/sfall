@@ -20,6 +20,11 @@
 
 #include "Module.h"
 
+namespace fo
+{
+struct GameObject;
+}
+
 namespace sfall
 {
 
@@ -30,6 +35,7 @@ public:
 	void exit() override;
 
 	static void PrintFile(const char* msg);
+	static void __fastcall PrintFloatToDebugLog(fo::GameObject* object, const char* msg);
 };
 
 }
