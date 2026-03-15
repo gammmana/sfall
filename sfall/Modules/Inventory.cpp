@@ -22,12 +22,18 @@
 #include "..\Translate.h"
 
 #include "LoadGameHook.h"
+#include "Unarmed.h"
 #include "HookScripts\MiscHs.h"
 
 #include "..\Game\inventory.h"
 #include "..\Game\items.h"
 
 #include "Inventory.h"
+
+#include <cstdarg>
+#include <cstdio>
+#include <string>
+#include <vector>
 
 namespace sfall
 {
@@ -41,6 +47,517 @@ static DWORD reloadWeaponKey;
 static DWORD itemFastMoveKey;
 static DWORD skipFromContainer = 0;
 static DWORD itemSkipDragKey;
+static bool inventoryDumpActive = false;
+static bool inventoryDumpDisplayBonusDamage = false;
+static bool inventoryDumpBonusHtHDamageFix = true;
+
+static constexpr const char* kInventoryDumpSeparator = "------------------------------------------------------------------------------\n";
+
+static const fo::Stat kInventorySummaryStats[7] = {
+	fo::STAT_current_hp,
+	fo::STAT_ac,
+	fo::STAT_dmg_thresh,
+	fo::STAT_dmg_thresh_laser,
+	fo::STAT_dmg_thresh_fire,
+	fo::STAT_dmg_thresh_plasma,
+	fo::STAT_dmg_thresh_explosion,
+};
+
+static const long kInventorySummaryStats2[7] = {
+	fo::STAT_max_hit_points,
+	-1,
+	fo::STAT_dmg_resist,
+	fo::STAT_dmg_resist_laser,
+	fo::STAT_dmg_resist_fire,
+	fo::STAT_dmg_resist_plasma,
+	fo::STAT_dmg_resist_explosion,
+};
+
+static std::vector<std::string>* inventoryDumpCapturedLines = nullptr;
+
+static int __stdcall CritterGetMaxSize(fo::GameObject* critter);
+static const char* __stdcall SizeInfoMessage(fo::GameObject* item);
+
+static std::string InventoryDumpFormat(const char* fmt, ...) {
+	char buffer[1024];
+	va_list args;
+	va_start(args, fmt);
+	vsnprintf(buffer, sizeof(buffer), fmt, args);
+	va_end(args);
+	return buffer;
+}
+
+static const char* GetInventoryMessageText(long msgId, const char* fallback = "") {
+	const char* text = fo::util::MessageSearch(&fo::var::inventry_message_file, msgId);
+	return (text && *text) ? text : fallback;
+}
+
+static const char* GetProtoMessageText(long msgId, const char* fallback = "") {
+	const char* text = fo::util::MessageSearch(&fo::var::proto_main_msg_file, msgId);
+	return (text && *text) ? text : fallback;
+}
+
+static void PrintInventoryDumpBlock(const char* title, const std::vector<std::string>& lines) {
+	fo::func::debug_printf("%s", kInventoryDumpSeparator);
+	fo::func::debug_printf("| %s\n", title);
+	fo::func::debug_printf("%s", kInventoryDumpSeparator);
+	for (const auto& line : lines) {
+		fo::func::debug_printf("| %s\n", line.c_str());
+	}
+	fo::func::debug_printf("%s", kInventoryDumpSeparator);
+}
+
+static void SplitInventoryDumpText(std::vector<std::string>& lines, const char* text, const char* prefix = nullptr) {
+	if (!text) return;
+
+	std::string current;
+	size_t remaining = 1024;
+	auto flush = [&]() {
+		if (prefix) {
+			lines.emplace_back(std::string(prefix) + current);
+		} else {
+			lines.emplace_back(current);
+		}
+		current.clear();
+	};
+
+	for (const char* p = text; *p; ++p) {
+		if (remaining == 0) {
+			current += "...";
+			break;
+		}
+		remaining--;
+		if (*p == '\r') continue;
+		if (*p == '\n') {
+			flush();
+			continue;
+		}
+		current.push_back(*p);
+	}
+
+	if (!current.empty() || prefix) flush();
+}
+
+long Inventory::GetUiListRowCount(fo::GameObject* owner) {
+	if (!owner || !owner->invenTable || owner->invenSize <= 0) return 0;
+	return owner->invenSize;
+}
+
+long Inventory::GetUiListIndexAtRow(fo::GameObject* owner, long row) {
+	const long count = GetUiListRowCount(owner);
+	if (count <= 0) return -1;
+
+	if (row < 0) row = 0;
+	if (row >= count) row = count - 1;
+
+	return (count - 1) - row;
+}
+
+fo::GameObject* Inventory::GetUiListItemAtRow(fo::GameObject* owner, long row) {
+	const long index = GetUiListIndexAtRow(owner, row);
+	if (index < 0) return nullptr;
+	return owner->invenTable[index].object;
+}
+
+long Inventory::GetUiListStackCountAtRow(fo::GameObject* owner, long row) {
+	const long index = GetUiListIndexAtRow(owner, row);
+	if (index < 0) return 0;
+	return owner->invenTable[index].count;
+}
+
+static int GetItemTypeOrDefault(fo::GameObject* item) {
+	return (item) ? fo::func::item_get_type(item) : fo::item_type_misc_item;
+}
+
+static fo::Proto* GetItemProto(fo::GameObject* item) {
+	if (!item) return nullptr;
+
+	fo::Proto* proto = nullptr;
+	if (!fo::util::GetProto(item->protoId, &proto)) return nullptr;
+	return proto;
+}
+
+static long GetAmmoCapacity(fo::GameObject* item) {
+	fo::Proto* proto = GetItemProto(item);
+	if (!proto) return 0;
+
+	if (proto->item.type == fo::item_type_ammo) {
+		return proto->item.ammo.packSize;
+	}
+	if (proto->item.type == fo::ItemType::item_type_weapon) {
+		return proto->item.weapon.maxAmmo;
+	}
+	return 0;
+}
+
+static long GetAmmoQuantity(fo::GameObject* item) {
+	return (item) ? item->item.charges : 0;
+}
+
+static long GetWeaponAmmoTypePid(fo::GameObject* item) {
+	if (!item || GetItemTypeOrDefault(item) != fo::ItemType::item_type_weapon) return -1;
+	return item->item.ammoPid;
+}
+
+static std::string GetObjectName(fo::GameObject* item) {
+	if (!item) return GetInventoryMessageText(14, "No item");
+	const char* name = fo::func::object_name(item);
+	return (name && *name) ? name : "<unnamed>";
+}
+
+static std::string GetGuiDisplayCount(fo::GameObject* item, long stackCount) {
+	if (!item || stackCount <= 0) return "(none)";
+
+	long displayCount = 0;
+	if (GetItemTypeOrDefault(item) == fo::item_type_ammo) {
+		displayCount = GetAmmoCapacity(item) * (stackCount - 1) + GetAmmoQuantity(item);
+		if (displayCount > 99999) displayCount = 99999;
+		return InventoryDumpFormat("x%ld", displayCount);
+	}
+
+	if (stackCount <= 1) return "(none)";
+	displayCount = (stackCount > 99999) ? 99999 : stackCount;
+	return InventoryDumpFormat("x%ld", displayCount);
+}
+
+static std::string GetEquippedSlotMarkers(fo::GameObject* item, fo::GameObject* armor, fo::GameObject* left, fo::GameObject* right) {
+	if (!item) return "none";
+
+	std::string markers;
+	if (item == armor) markers = "Armor";
+	if (item == left) {
+		if (!markers.empty()) markers += ",";
+		markers += "Item1";
+	}
+	if (item == right) {
+		if (!markers.empty()) markers += ",";
+		markers += "Item2";
+	}
+	return markers.empty() ? "none" : markers;
+}
+
+static fo::AttackType GetInventoryHandHitMode(fo::GameObject* owner, fo::HandSlot slot) {
+	if (owner == fo::var::obj_dude) {
+		const fo::HandSlotMode mode = fo::util::GetHandSlotMode(slot);
+		if (mode == fo::HandSlotMode::Secondary || mode == fo::HandSlotMode::Secondary_Aimed) {
+			return (slot == fo::HandSlot::Left)
+			     ? fo::AttackType::ATKTYPE_LWEAPON_SECONDARY
+			     : fo::AttackType::ATKTYPE_RWEAPON_SECONDARY;
+		}
+	}
+
+	return (slot == fo::HandSlot::Left)
+	     ? fo::AttackType::ATKTYPE_LWEAPON_PRIMARY
+	     : fo::AttackType::ATKTYPE_RWEAPON_PRIMARY;
+}
+
+static fo::AttackType GetInventoryUnarmedHitMode(fo::GameObject* owner, fo::HandSlot slot) {
+	if (owner == fo::var::obj_dude) {
+		return Unarmed::GetStoredHitMode(slot);
+	}
+	return (slot == fo::HandSlot::Left)
+	     ? fo::AttackType::ATKTYPE_PUNCH
+	     : fo::AttackType::ATKTYPE_KICK;
+}
+
+static fo::AttackSubType GetWeaponAttackSubType(fo::GameObject* item, fo::AttackType hitMode) {
+	fo::Proto* proto = GetItemProto(item);
+	if (!proto || proto->item.type != fo::ItemType::item_type_weapon) return fo::AttackSubType::NONE;
+
+	long attackFlag = proto->item.flagsExt & 0x0F;
+	if (hitMode == fo::AttackType::ATKTYPE_LWEAPON_SECONDARY || hitMode == fo::AttackType::ATKTYPE_RWEAPON_SECONDARY) {
+		attackFlag = (proto->item.flagsExt >> 4) & 0x0F;
+	}
+
+	return fo::util::GetWeaponType(attackFlag);
+}
+
+static void __stdcall InventoryDumpCaptureLineImpl(char* text) {
+	if (!inventoryDumpCapturedLines) return;
+	SplitInventoryDumpText(*inventoryDumpCapturedLines, text);
+}
+
+static __declspec(naked) void InventoryDumpCaptureLine() {
+	__asm {
+		push eax
+		call InventoryDumpCaptureLineImpl
+		retn
+	}
+}
+
+static long __stdcall ObjExamineFuncCapture(fo::GameObject* critter, fo::GameObject* item, void* callback) {
+	__asm {
+		mov  ebx, callback
+		mov  edx, item
+		mov  eax, critter
+		call fo::funcoffs::obj_examine_func_
+	}
+}
+
+static void AppendItemDescriptionLines(std::vector<std::string>& lines, fo::GameObject* owner, fo::GameObject* item) {
+	if (!owner || !item) return;
+
+	inventoryDumpCapturedLines = &lines;
+	ObjExamineFuncCapture(owner, item, InventoryDumpCaptureLine);
+	inventoryDumpCapturedLines = nullptr;
+
+	const long weight = fo::func::item_weight(item);
+	if (weight != 0) {
+		const char* fmt = GetProtoMessageText((weight == 1) ? 541 : 540, (weight == 1) ? "It weighs %d pound." : "It weighs %d pounds.");
+		lines.emplace_back(InventoryDumpFormat(fmt, weight));
+	}
+
+	if (sizeLimitMode > 0) {
+		lines.emplace_back(SizeInfoMessage(item));
+	}
+}
+
+static std::vector<std::string> CollectItemDescriptionLines(fo::GameObject* owner, fo::GameObject* item) {
+	std::vector<std::string> lines;
+	AppendItemDescriptionLines(lines, owner, item);
+	return lines;
+}
+
+static std::vector<std::string> BuildHandSlotSummaryLines(fo::GameObject* owner, fo::GameObject* item, fo::HandSlot slot) {
+	std::vector<std::string> lines;
+	if (!owner) return lines;
+
+	if (!item) {
+		lines.emplace_back(GetInventoryMessageText(14, "No item"));
+
+		long minDamage = 0;
+		long maxDamage = 0;
+		long bonusDamage = Unarmed::GetDamage(GetInventoryUnarmedHitMode(owner, slot), minDamage, maxDamage);
+		long meleeDamage = fo::func::stat_level(owner, fo::STAT_melee_dmg);
+		long perkBonus = 0;
+		if (owner == fo::var::obj_dude && inventoryDumpBonusHtHDamageFix) {
+			perkBonus = fo::func::perk_level(owner, fo::Perk::PERK_bonus_hth_damage) << 1;
+			if (!inventoryDumpDisplayBonusDamage) meleeDamage -= perkBonus;
+			if (inventoryDumpDisplayBonusDamage) minDamage += perkBonus;
+		}
+
+		lines.emplace_back(InventoryDumpFormat("%s %ld-%ld",
+			GetInventoryMessageText(24, "Unarmed dmg:"),
+			bonusDamage + minDamage,
+			bonusDamage + meleeDamage + maxDamage));
+		return lines;
+	}
+
+	const int itemType = GetItemTypeOrDefault(item);
+	if (itemType != fo::ItemType::item_type_weapon) {
+		if (itemType == fo::item_type_armor) {
+			lines.emplace_back(GetInventoryMessageText(18, "(Not worn)"));
+		}
+		return lines;
+	}
+
+	fo::Proto* proto = GetItemProto(item);
+	if (!proto) return lines;
+
+	const fo::AttackType hitMode = GetInventoryHandHitMode(owner, slot);
+	const fo::AttackSubType attackType = GetWeaponAttackSubType(item, hitMode);
+	const long range = fo::func::item_w_range(owner, hitMode);
+	long damageMin = proto->item.weapon.minDamage;
+	long damageMax = proto->item.weapon.maxDamage;
+	long meleeDamage = 0;
+
+	if (attackType == fo::AttackSubType::MELEE || attackType == fo::AttackSubType::UNARMED) {
+		meleeDamage = fo::func::stat_level(owner, fo::STAT_melee_dmg);
+		if (owner == fo::var::obj_dude && inventoryDumpBonusHtHDamageFix) {
+			const long perkBonus = fo::func::perk_level(owner, fo::Perk::PERK_bonus_hth_damage) << 1;
+			if (!inventoryDumpDisplayBonusDamage) meleeDamage -= perkBonus;
+			if (inventoryDumpDisplayBonusDamage) damageMin += perkBonus;
+		}
+	} else if (owner == fo::var::obj_dude && inventoryDumpDisplayBonusDamage && attackType == fo::AttackSubType::RANGED) {
+		const long perkBonus = fo::func::perk_level(owner, fo::Perk::PERK_bonus_ranged_damage) << 1;
+		damageMin += perkBonus;
+		damageMax += perkBonus;
+	}
+
+	if (attackType != fo::AttackSubType::RANGED && range <= 1) {
+		lines.emplace_back(InventoryDumpFormat("%s %ld-%ld",
+			GetInventoryMessageText(15, "Dmg:"),
+			damageMin,
+			damageMax + meleeDamage));
+	} else {
+		lines.emplace_back(InventoryDumpFormat("%s %ld-%ld   %s %ld",
+			GetInventoryMessageText(15, "Dmg:"),
+			damageMin,
+			damageMax + meleeDamage,
+			GetInventoryMessageText(16, "Rng:"),
+			range));
+	}
+
+	const long ammoCapacity = GetAmmoCapacity(item);
+	if (ammoCapacity > 0) {
+		const long ammoQuantity = GetAmmoQuantity(item);
+		const long ammoTypePid = GetWeaponAmmoTypePid(item);
+		if (ammoTypePid != -1 && ammoQuantity != 0) {
+			lines.emplace_back(InventoryDumpFormat("%s %ld/%ld %s",
+				GetInventoryMessageText(17, "Ammo:"),
+				ammoQuantity,
+				ammoCapacity,
+				fo::func::proto_get_msg_info(ammoTypePid, 0)));
+		} else {
+			lines.emplace_back(InventoryDumpFormat("%s %ld/%ld",
+				GetInventoryMessageText(17, "Ammo:"),
+				ammoQuantity,
+				ammoCapacity));
+		}
+	}
+
+	return lines;
+}
+
+static std::vector<std::string> BuildInventoryScreenLines(fo::GameObject* owner) {
+	std::vector<std::string> lines;
+	if (!owner) return lines;
+
+	lines.emplace_back(InventoryDumpFormat("OwnerName: %s", GetObjectName(owner).c_str()));
+	lines.emplace_back(InventoryDumpFormat("OwnerObjPtr: %ld", reinterpret_cast<long>(owner)));
+	lines.emplace_back(InventoryDumpFormat("OwnerID: %ld", owner->id));
+	lines.emplace_back(InventoryDumpFormat("OwnerPID: %ld", owner->protoId));
+	lines.emplace_back(InventoryDumpFormat("ActiveHand: %s", (fo::var::itemCurrentItem == fo::HandSlot::Right) ? "Item2" : "Item1"));
+	lines.emplace_back(InventoryDumpFormat("RowCount: %ld", Inventory::GetUiListRowCount(owner)));
+	lines.emplace_back("SPECIAL:");
+	for (long stat = fo::STAT_st; stat <= fo::STAT_lu; stat++) {
+		const char* statName = GetInventoryMessageText(stat, fo::var::stat_data[stat].name ? fo::var::stat_data[stat].name : "Stat");
+		lines.emplace_back(InventoryDumpFormat("  %s: %ld", statName, fo::func::stat_level(owner, stat)));
+	}
+
+	lines.emplace_back("Summary:");
+	for (long i = 0; i < 7; i++) {
+		const char* label = GetInventoryMessageText(7 + i, "Summary");
+		if (kInventorySummaryStats2[i] == -1) {
+			lines.emplace_back(InventoryDumpFormat("  %s: %ld", label, fo::func::stat_level(owner, kInventorySummaryStats[i])));
+		} else if (i == 0) {
+			lines.emplace_back(InventoryDumpFormat("  %s: %ld/%ld",
+				label,
+				fo::func::stat_level(owner, kInventorySummaryStats[i]),
+				fo::func::stat_level(owner, static_cast<fo::Stat>(kInventorySummaryStats2[i]))));
+		} else {
+			lines.emplace_back(InventoryDumpFormat("  %s: %ld/%ld%%",
+				label,
+				fo::func::stat_level(owner, kInventorySummaryStats[i]),
+				fo::func::stat_level(owner, static_cast<fo::Stat>(kInventorySummaryStats2[i]))));
+		}
+	}
+
+	const long inventoryWeight = fo::func::item_total_weight(owner);
+	if (owner->IsCritter()) {
+		lines.emplace_back(InventoryDumpFormat("  %s: %ld/%ld",
+			GetInventoryMessageText(20, "Total wt:"),
+			inventoryWeight,
+			fo::func::stat_level(owner, fo::STAT_carry_amt)));
+	} else {
+		lines.emplace_back(InventoryDumpFormat("  %s: %ld",
+			GetInventoryMessageText(20, "Total wt:"),
+			inventoryWeight));
+	}
+
+	const long maxSize = CritterGetMaxSize(owner);
+	if (maxSize > 0) {
+		lines.emplace_back(InventoryDumpFormat("  %s: %lu/%ld",
+			GetInventoryMessageText(35, "Size"),
+			game::Inventory::item_total_size(owner),
+			maxSize));
+	}
+
+	return lines;
+}
+
+static std::vector<std::string> BuildEquippedSlotLines(const char* slotName, fo::GameObject* owner, fo::GameObject* item, bool isActive, bool includeSlotSummary, fo::HandSlot slot) {
+	std::vector<std::string> lines;
+	lines.emplace_back(InventoryDumpFormat("Slot: %s", slotName));
+	lines.emplace_back(InventoryDumpFormat("Active: %s", isActive ? "yes" : "no"));
+	lines.emplace_back(InventoryDumpFormat("Name: %s", GetObjectName(item).c_str()));
+
+	if (item) {
+		lines.emplace_back(InventoryDumpFormat("ObjPtr: %ld", reinterpret_cast<long>(item)));
+		lines.emplace_back(InventoryDumpFormat("ID: %ld", item->id));
+		lines.emplace_back(InventoryDumpFormat("PID: %ld", item->protoId));
+	}
+
+	if (includeSlotSummary) {
+		const auto summaryLines = BuildHandSlotSummaryLines(owner, item, slot);
+		if (!summaryLines.empty()) {
+			lines.emplace_back("Summary:");
+			for (const auto& line : summaryLines) {
+				lines.emplace_back("  " + line);
+			}
+		}
+	}
+
+	if (item) {
+		const auto descriptionLines = CollectItemDescriptionLines(owner, item);
+		if (!descriptionLines.empty()) {
+			lines.emplace_back("Description:");
+			for (const auto& line : descriptionLines) {
+				lines.emplace_back("  " + line);
+			}
+		}
+	}
+
+	return lines;
+}
+
+static std::vector<std::string> BuildInventoryStackLines(fo::GameObject* owner, long row, fo::GameObject* item, long stackCount, fo::GameObject* armor, fo::GameObject* left, fo::GameObject* right) {
+	std::vector<std::string> lines;
+	lines.emplace_back(InventoryDumpFormat("Row: %ld", row));
+	lines.emplace_back(InventoryDumpFormat("Name: %s", GetObjectName(item).c_str()));
+	lines.emplace_back(InventoryDumpFormat("ObjPtr: %ld", reinterpret_cast<long>(item)));
+	lines.emplace_back(InventoryDumpFormat("ID: %ld", item ? item->id : -1));
+	lines.emplace_back(InventoryDumpFormat("PID: %ld", item ? item->protoId : -1));
+	lines.emplace_back(InventoryDumpFormat("StackCount: %ld", stackCount));
+	lines.emplace_back(InventoryDumpFormat("GuiDisplayCount: %s", GetGuiDisplayCount(item, stackCount).c_str()));
+	lines.emplace_back(InventoryDumpFormat("EquippedSlots: %s", GetEquippedSlotMarkers(item, armor, left, right).c_str()));
+
+	const auto descriptionLines = CollectItemDescriptionLines(owner, item);
+	if (!descriptionLines.empty()) {
+		lines.emplace_back("Description:");
+		for (const auto& line : descriptionLines) {
+			lines.emplace_back("  " + line);
+		}
+	}
+
+	return lines;
+}
+
+static void DumpOpenedInventoryScreen() {
+	fo::GameObject* owner = fo::var::inven_dude;
+	if (!owner) return;
+
+	fo::GameObject* armor = fo::func::inven_worn(owner);
+	fo::GameObject* left = fo::func::inven_left_hand(owner);
+	fo::GameObject* right = fo::func::inven_right_hand(owner);
+
+	PrintInventoryDumpBlock("InventoryScreen", BuildInventoryScreenLines(owner));
+	PrintInventoryDumpBlock("InventoryArmor", BuildEquippedSlotLines("Armor", owner, armor, false, false, fo::HandSlot::Left));
+	PrintInventoryDumpBlock("InventoryItem1", BuildEquippedSlotLines("Item1", owner, left, fo::var::itemCurrentItem == fo::HandSlot::Left, true, fo::HandSlot::Left));
+	PrintInventoryDumpBlock("InventoryItem2", BuildEquippedSlotLines("Item2", owner, right, fo::var::itemCurrentItem == fo::HandSlot::Right, true, fo::HandSlot::Right));
+
+	const long rowCount = Inventory::GetUiListRowCount(owner);
+	for (long row = 0; row < rowCount; row++) {
+		fo::GameObject* item = Inventory::GetUiListItemAtRow(owner, row);
+		const long stackCount = Inventory::GetUiListStackCountAtRow(owner, row);
+		if (!item || stackCount <= 0) continue;
+
+		const std::string title = InventoryDumpFormat("InventoryStack_%ld", row);
+		PrintInventoryDumpBlock(title.c_str(), BuildInventoryStackLines(owner, row, item, stackCount, armor, left, right));
+	}
+}
+
+static void InventoryDumpOnGameModeChange(DWORD) {
+	const DWORD flags = GetLoopFlags();
+	const bool isNormalInventory = (flags & INVENTORY) != 0
+		&& (flags & (INTFACEUSE | INTFACELOOT | BARTER)) == 0;
+
+	if (isNormalInventory && !inventoryDumpActive) {
+		DumpOpenedInventoryScreen();
+	}
+
+	inventoryDumpActive = isNormalInventory;
+}
 
 void InventoryKeyPressedHook(DWORD dxKey, bool pressed) {
 	if (pressed && reloadWeaponKey && dxKey == reloadWeaponKey && IsGameLoaded() && (GetLoopFlags() & ~(COMBAT | PCOMBAT)) == 0) {
@@ -849,13 +1366,17 @@ long Inventory::GetInvenApCost() {
 
 void InventoryReset() {
 	invenApCost = invenApCostDef;
+	inventoryDumpActive = false;
 }
 
 void Inventory::init() {
 	OnKeyPressed() += InventoryKeyPressedHook;
 	LoadGameHook::OnGameReset() += InventoryReset;
+	LoadGameHook::OnGameModeChange() += InventoryDumpOnGameModeChange;
 
 	long widthWeight = 135;
+	inventoryDumpDisplayBonusDamage = IniReader::GetConfigInt("Misc", "DisplayBonusDamage", 0) != 0;
+	inventoryDumpBonusHtHDamageFix = IniReader::GetConfigInt("Misc", "BonusHtHDamageFix", 1) != 0;
 
 	sizeLimitMode = IniReader::GetConfigInt("Misc", "CritterInvSizeLimitMode", 0);
 	if (sizeLimitMode > 0 && sizeLimitMode <= 7) {

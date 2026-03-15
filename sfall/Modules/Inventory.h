@@ -21,6 +21,11 @@
 #include "..\Delegate.h"
 #include "Module.h"
 
+namespace fo
+{
+struct GameObject;
+}
+
 namespace sfall
 {
 
@@ -35,6 +40,11 @@ public:
 
 	static long GetInvenApCost();
 	static void __fastcall SetInvenApCost(int cost);
+
+	static long GetUiListRowCount(fo::GameObject* owner);
+	static long GetUiListIndexAtRow(fo::GameObject* owner, long row);
+	static fo::GameObject* GetUiListItemAtRow(fo::GameObject* owner, long row);
+	static long GetUiListStackCountAtRow(fo::GameObject* owner, long row);
 };
 
 }

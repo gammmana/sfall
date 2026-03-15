@@ -22,6 +22,7 @@
 #include "..\..\..\InputFuncs.h"
 #include "..\..\BarBoxes.h"
 #include "..\..\ExtraArt.h"
+#include "..\..\Inventory.h"
 #include "..\..\LoadGameHook.h"
 #include "..\..\ScriptExtender.h"
 #include "..\..\Interface.h"
@@ -178,19 +179,11 @@ static long BridgeInventoryPaneCount(long mode) {
 }
 
 static long BridgeInventoryCount(fo::GameObject* owner) {
-	if (!owner || !owner->invenTable || owner->invenSize <= 0) return 0;
-	return owner->invenSize;
+	return Inventory::GetUiListRowCount(owner);
 }
 
 static fo::GameObject* BridgeInventoryItemAtRow(fo::GameObject* owner, long row) {
-	const long count = BridgeInventoryCount(owner);
-	if (count <= 0) return nullptr;
-
-	if (row < 0) row = 0;
-	if (row >= count) row = count - 1;
-
-	const long index = (count - 1) - row;
-	return owner->invenTable[index].object;
+	return Inventory::GetUiListItemAtRow(owner, row);
 }
 
 static fo::GameObject* BridgeTargetStackObject() {
