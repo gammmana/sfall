@@ -47,9 +47,16 @@ static DWORD reloadWeaponKey;
 static DWORD itemFastMoveKey;
 static DWORD skipFromContainer = 0;
 static DWORD itemSkipDragKey;
-static bool inventoryDumpActive = false;
 static bool inventoryDumpDisplayBonusDamage = false;
 static bool inventoryDumpBonusHtHDamageFix = true;
+
+enum InventoryDumpWindowMode {
+	INVENTORY_DUMP_WINDOW_NONE   = 0,
+	INVENTORY_DUMP_WINDOW_NORMAL = 1,
+	INVENTORY_DUMP_WINDOW_LOOT   = 2,
+};
+
+static InventoryDumpWindowMode inventoryDumpWindowMode = INVENTORY_DUMP_WINDOW_NONE;
 
 static constexpr const char* kInventoryDumpSeparator = "------------------------------------------------------------------------------\n";
 
@@ -523,9 +530,121 @@ static std::vector<std::string> BuildInventoryStackLines(fo::GameObject* owner, 
 	return lines;
 }
 
-static void DumpOpenedInventoryScreen() {
+static std::vector<std::string> BuildLootStackLines(fo::GameObject* examiner, long row, fo::GameObject* item, long stackCount, fo::GameObject* armor, fo::GameObject* left, fo::GameObject* right) {
+	std::vector<std::string> lines;
+	lines.emplace_back(InventoryDumpFormat("Row: %ld", row));
+	lines.emplace_back(InventoryDumpFormat("Name: %s", GetObjectName(item).c_str()));
+	lines.emplace_back(InventoryDumpFormat("ObjPtr: %ld", reinterpret_cast<long>(item)));
+	lines.emplace_back(InventoryDumpFormat("ID: %ld", item ? item->id : -1));
+	lines.emplace_back(InventoryDumpFormat("PID: %ld", item ? item->protoId : -1));
+	lines.emplace_back(InventoryDumpFormat("StackCount: %ld", stackCount));
+	lines.emplace_back(InventoryDumpFormat("GuiDisplayCount: %s", GetGuiDisplayCount(item, stackCount).c_str()));
+	lines.emplace_back(InventoryDumpFormat("EquippedSlots: %s", GetEquippedSlotMarkers(item, armor, left, right).c_str()));
+
+	const auto descriptionLines = CollectItemDescriptionLines(examiner, item);
+	if (!descriptionLines.empty()) {
+		lines.emplace_back("Description:");
+		for (const auto& line : descriptionLines) {
+			lines.emplace_back("  " + line);
+		}
+	}
+
+	return lines;
+}
+
+static const char* GetInventoryDumpObjectTypeName(fo::GameObject* owner) {
+	if (!owner) return "none";
+
+	switch (owner->Type()) {
+	case fo::ObjType::OBJ_TYPE_ITEM:
+		return "item";
+	case fo::ObjType::OBJ_TYPE_CRITTER:
+		return "critter";
+	case fo::ObjType::OBJ_TYPE_SCENERY:
+		return "scenery";
+	case fo::ObjType::OBJ_TYPE_WALL:
+		return "wall";
+	case fo::ObjType::OBJ_TYPE_TILE:
+		return "tile";
+	case fo::ObjType::OBJ_TYPE_MISC:
+		return "misc";
+	default:
+		return "unknown";
+	}
+}
+
+static std::string GetLootPaneFooterText(fo::GameObject* owner) {
+	if (!owner) return "(none)";
+
+	const long inventoryWeight = fo::func::item_total_weight(owner);
+	if (owner->IsCritter()) {
+		return InventoryDumpFormat("%ld/%ld", inventoryWeight, fo::func::stat_level(owner, fo::STAT_carry_amt));
+	}
+
+	if (owner->Type() == fo::ObjType::OBJ_TYPE_ITEM && GetItemTypeOrDefault(owner) == fo::item_type_container) {
+		const fo::Proto* proto = GetItemProto(owner);
+		const long maxSize = (proto) ? proto->item.container.maxSize : 0;
+		return InventoryDumpFormat("%lu/%ld", game::Inventory::item_total_size(owner), maxSize);
+	}
+
+	return InventoryDumpFormat("%ld", inventoryWeight);
+}
+
+static std::vector<std::string> BuildLootPaneLines(const char* paneName, fo::GameObject* owner, long scrollOffset) {
+	std::vector<std::string> lines;
+	if (!owner) return lines;
+
+	const long rowCount = Inventory::GetUiListRowCount(owner);
+	long visibleRows = rowCount - scrollOffset;
+	if (visibleRows < 0) visibleRows = 0;
+	if (visibleRows > 6) visibleRows = 6;
+
+	lines.emplace_back(InventoryDumpFormat("Pane: %s", paneName));
+	lines.emplace_back(InventoryDumpFormat("OwnerName: %s", GetObjectName(owner).c_str()));
+	lines.emplace_back(InventoryDumpFormat("OwnerObjPtr: %ld", reinterpret_cast<long>(owner)));
+	lines.emplace_back(InventoryDumpFormat("OwnerID: %ld", owner->id));
+	lines.emplace_back(InventoryDumpFormat("OwnerPID: %ld", owner->protoId));
+	lines.emplace_back(InventoryDumpFormat("OwnerType: %s", GetInventoryDumpObjectTypeName(owner)));
+	lines.emplace_back(InventoryDumpFormat("RowCount: %ld", rowCount));
+	lines.emplace_back(InventoryDumpFormat("ScrollOffset: %ld", scrollOffset));
+	lines.emplace_back(InventoryDumpFormat("VisibleRows: %ld", visibleRows));
+	lines.emplace_back(InventoryDumpFormat("GuiListFooter: %s", GetLootPaneFooterText(owner).c_str()));
+	lines.emplace_back(InventoryDumpFormat("InventoryWeight: %ld", fo::func::item_total_weight(owner)));
+
+	if (owner->IsCritter()) {
+		const long maxHp = fo::func::stat_level(owner, fo::STAT_max_hit_points);
+		lines.emplace_back(InventoryDumpFormat("GuiHealth: %ld/%ld", owner->critter.health, maxHp));
+		lines.emplace_back(InventoryDumpFormat("CarryWeight: %ld", fo::func::stat_level(owner, fo::STAT_carry_amt)));
+	}
+
+	if (owner->Type() == fo::ObjType::OBJ_TYPE_ITEM && GetItemTypeOrDefault(owner) == fo::item_type_container) {
+		const fo::Proto* proto = GetItemProto(owner);
+		const long maxSize = (proto) ? proto->item.container.maxSize : 0;
+		lines.emplace_back(InventoryDumpFormat("ContainerSize: %lu/%ld", game::Inventory::item_total_size(owner), maxSize));
+	}
+
+	return lines;
+}
+
+static std::vector<std::string> BuildLootScreenLines(fo::GameObject* source, fo::GameObject* target) {
+	std::vector<std::string> lines;
+	lines.emplace_back(InventoryDumpFormat("StealMode: %s", (fo::var::gIsSteal) ? "yes" : "no"));
+	lines.emplace_back(InventoryDumpFormat("TakeAllEnabled: %s", (fo::var::gIsSteal) ? "no" : "yes"));
+	lines.emplace_back("PaneOrder: left=player_inventory right=loot_target_inventory");
+	lines.emplace_back("MetaCursorOrder: top_row_is_row_0 for both panes");
+	lines.emplace_back("VisibleRowCapacity: 6");
+	lines.emplace_back(InventoryDumpFormat("PlayerContainerDepth: %ld", fo::var::curr_stack + 1));
+	lines.emplace_back(InventoryDumpFormat("LootContainerDepth: %ld", fo::var::target_curr_stack + 1));
+	lines.emplace_back(InventoryDumpFormat("PlayerName: %s", GetObjectName(source).c_str()));
+	lines.emplace_back(InventoryDumpFormat("PlayerObjPtr: %ld", reinterpret_cast<long>(source)));
+	lines.emplace_back(InventoryDumpFormat("LootTargetName: %s", GetObjectName(target).c_str()));
+	lines.emplace_back(InventoryDumpFormat("LootTargetObjPtr: %ld", reinterpret_cast<long>(target)));
+	return lines;
+}
+
+static bool DumpOpenedInventoryScreen() {
 	fo::GameObject* owner = fo::var::inven_dude;
-	if (!owner) return;
+	if (!owner) return false;
 
 	fo::GameObject* armor = fo::func::inven_worn(owner);
 	fo::GameObject* left = fo::func::inven_left_hand(owner);
@@ -545,18 +664,82 @@ static void DumpOpenedInventoryScreen() {
 		const std::string title = InventoryDumpFormat("InventoryStack_%ld", row);
 		PrintInventoryDumpBlock(title.c_str(), BuildInventoryStackLines(owner, row, item, stackCount, armor, left, right));
 	}
+
+	return true;
 }
 
-static void InventoryDumpOnGameModeChange(DWORD) {
+static bool DumpOpenedLootScreen() {
+	fo::GameObject* source = fo::var::inven_dude;
+	fo::GameObject* target = fo::var::target_stack[fo::var::target_curr_stack];
+	if (!source || !target) return false;
+
+	fo::GameObject* examiner = fo::var::stack[0];
+	if (!examiner) examiner = source;
+
+	fo::GameObject* sourceArmor = (source->IsCritter()) ? fo::func::inven_worn(source) : nullptr;
+	fo::GameObject* sourceLeft = (source->IsCritter()) ? fo::func::inven_left_hand(source) : nullptr;
+	fo::GameObject* sourceRight = (source->IsCritter()) ? fo::func::inven_right_hand(source) : nullptr;
+	fo::GameObject* targetArmor = (target->IsCritter()) ? fo::func::inven_worn(target) : nullptr;
+	fo::GameObject* targetLeft = (target->IsCritter()) ? fo::func::inven_left_hand(target) : nullptr;
+	fo::GameObject* targetRight = (target->IsCritter()) ? fo::func::inven_right_hand(target) : nullptr;
+
+	PrintInventoryDumpBlock("LootScreen", BuildLootScreenLines(source, target));
+	PrintInventoryDumpBlock("LootPlayerPane", BuildLootPaneLines("player_inventory", source, fo::var::stack_offset[fo::var::curr_stack]));
+	PrintInventoryDumpBlock("LootTargetPane", BuildLootPaneLines("loot_target_inventory", target, fo::var::target_stack_offset[fo::var::target_curr_stack]));
+
+	const long sourceRowCount = Inventory::GetUiListRowCount(source);
+	for (long row = 0; row < sourceRowCount; row++) {
+		fo::GameObject* item = Inventory::GetUiListItemAtRow(source, row);
+		const long stackCount = Inventory::GetUiListStackCountAtRow(source, row);
+		if (!item || stackCount <= 0) continue;
+
+		const std::string title = InventoryDumpFormat("LootPlayerStack_%ld", row);
+		PrintInventoryDumpBlock(title.c_str(), BuildLootStackLines(examiner, row, item, stackCount, sourceArmor, sourceLeft, sourceRight));
+	}
+
+	const long targetRowCount = Inventory::GetUiListRowCount(target);
+	for (long row = 0; row < targetRowCount; row++) {
+		fo::GameObject* item = Inventory::GetUiListItemAtRow(target, row);
+		const long stackCount = Inventory::GetUiListStackCountAtRow(target, row);
+		if (!item || stackCount <= 0) continue;
+
+		const std::string title = InventoryDumpFormat("LootTargetStack_%ld", row);
+		PrintInventoryDumpBlock(title.c_str(), BuildLootStackLines(examiner, row, item, stackCount, targetArmor, targetLeft, targetRight));
+	}
+
+	return true;
+}
+
+static InventoryDumpWindowMode GetInventoryDumpWindowMode() {
 	const DWORD flags = GetLoopFlags();
 	const bool isNormalInventory = (flags & INVENTORY) != 0
 		&& (flags & (INTFACEUSE | INTFACELOOT | BARTER)) == 0;
+	if (isNormalInventory) return INVENTORY_DUMP_WINDOW_NORMAL;
+	if (flags & INTFACELOOT) return INVENTORY_DUMP_WINDOW_LOOT;
+	return INVENTORY_DUMP_WINDOW_NONE;
+}
 
-	if (isNormalInventory && !inventoryDumpActive) {
-		DumpOpenedInventoryScreen();
+static void InventoryDumpMaybeEmit() {
+	const InventoryDumpWindowMode nextMode = GetInventoryDumpWindowMode();
+	if (nextMode == INVENTORY_DUMP_WINDOW_NONE) {
+		inventoryDumpWindowMode = INVENTORY_DUMP_WINDOW_NONE;
+		return;
 	}
 
-	inventoryDumpActive = isNormalInventory;
+	if (inventoryDumpWindowMode == nextMode) return;
+
+	bool dumped = false;
+	if (nextMode == INVENTORY_DUMP_WINDOW_NORMAL) {
+		dumped = DumpOpenedInventoryScreen();
+	} else if (nextMode == INVENTORY_DUMP_WINDOW_LOOT) {
+		dumped = DumpOpenedLootScreen();
+	}
+
+	if (dumped) inventoryDumpWindowMode = nextMode;
+}
+
+static void InventoryDumpOnGameModeChange(DWORD) {
+	InventoryDumpMaybeEmit();
 }
 
 void InventoryKeyPressedHook(DWORD dxKey, bool pressed) {
@@ -1366,7 +1549,7 @@ long Inventory::GetInvenApCost() {
 
 void InventoryReset() {
 	invenApCost = invenApCostDef;
-	inventoryDumpActive = false;
+	inventoryDumpWindowMode = INVENTORY_DUMP_WINDOW_NONE;
 }
 
 void Inventory::init() {
@@ -1508,6 +1691,7 @@ void Inventory::init() {
 
 void Inventory::InvokeAdjustFid(long fid) {
 	onAdjustFid.invoke(fid);
+	InventoryDumpMaybeEmit();
 }
 
 Delegate<DWORD>& Inventory::OnAdjustFid() {
