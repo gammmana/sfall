@@ -711,6 +711,23 @@ void mf_bridge_inv_state(OpcodeContext& ctx) {
 	ctx.setReturn(result);
 }
 
+void mf_bridge_dump_barter_window(OpcodeContext& ctx) {
+	BridgeInventorySyncMode();
+
+	fo::GameObject* owners[4];
+	long counts[4];
+	long paneCount;
+	long rowCount;
+	fo::GameObject* item;
+
+	BridgeInventoryPaneData(bridgeInvCursor.mode, owners, counts);
+	BridgeInventoryClampCursor(bridgeInvCursor.mode, owners, counts, paneCount, rowCount, item);
+
+	const long selectedPane = (bridgeInvCursor.mode == BRIDGE_INV_MODE_BARTER) ? bridgeInvCursor.pane : -1;
+	const long selectedRow = (bridgeInvCursor.mode == BRIDGE_INV_MODE_BARTER) ? bridgeInvCursor.row : -1;
+	ctx.setReturn(Inventory::DumpBarterWindow(selectedPane, selectedRow, item) ? 1 : 0);
+}
+
 void mf_bridge_inv_set_loot_owner(OpcodeContext& ctx) {
 	bridgeInvCursor.lootOwner = reinterpret_cast<fo::GameObject*>(ctx.arg(0).rawValue());
 	ctx.setReturn(0);

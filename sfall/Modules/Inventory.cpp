@@ -642,6 +642,195 @@ static std::vector<std::string> BuildLootScreenLines(fo::GameObject* source, fo:
 	return lines;
 }
 
+static const char* GetBarterPaneName(long paneIndex) {
+	switch (paneIndex) {
+	case 0:
+		return "player_inventory";
+	case 1:
+		return "player_offer";
+	case 2:
+		return "npc_offer";
+	case 3:
+		return "npc_inventory";
+	default:
+		return "unknown";
+	}
+}
+
+static long GetBarterVisibleRowCapacity() {
+	const long tradeWindowHeight = fo::var::iscr_data[fo::INVENTORY_WINDOW_TYPE_TRADE].height;
+	long visibleRows = (tradeWindowHeight - 36) / 48;
+	if (visibleRows < 3) visibleRows = 3;
+	if (visibleRows > 12) visibleRows = 12;
+	return visibleRows;
+}
+
+static std::string GetBarterOfferFooterText(bool isPartyTrade, bool playerOffer) {
+	long playerOfferValue = 0;
+	long npcOfferValue = 0;
+	BarterPriceHook_GetLastCosts(playerOfferValue, npcOfferValue);
+	const long value = playerOffer ? playerOfferValue : npcOfferValue;
+
+	if (!isPartyTrade) {
+		return InventoryDumpFormat("$%ld", value);
+	}
+
+	const char* weightLabel = GetInventoryMessageText(30, "Weight");
+	return InventoryDumpFormat("%s %ld", weightLabel, value);
+}
+
+static std::vector<std::string> BuildBarterWindowLines(
+	fo::GameObject* player,
+	fo::GameObject* npc,
+	bool isPartyTrade,
+	long selectedPane,
+	long selectedRow,
+	fo::GameObject* selectedItem,
+	const long counts[4]
+) {
+	std::vector<std::string> lines;
+
+	lines.emplace_back(InventoryDumpFormat("Mode: %s", isPartyTrade ? "trade" : "barter"));
+	lines.emplace_back(InventoryDumpFormat("SpeakerName: %s", GetObjectName(npc).c_str()));
+	lines.emplace_back(InventoryDumpFormat("SpeakerObjPtr: %ld", reinterpret_cast<long>(npc)));
+	lines.emplace_back(InventoryDumpFormat("SpeakerID: %ld", npc ? npc->id : -1));
+	lines.emplace_back(InventoryDumpFormat("SpeakerPID: %ld", npc ? npc->protoId : -1));
+	lines.emplace_back(InventoryDumpFormat("PlayerName: %s", GetObjectName(player).c_str()));
+	lines.emplace_back(InventoryDumpFormat("PlayerObjPtr: %ld", reinterpret_cast<long>(player)));
+	lines.emplace_back(InventoryDumpFormat("PlayerID: %ld", player ? player->id : -1));
+	lines.emplace_back(InventoryDumpFormat("PlayerPID: %ld", player ? player->protoId : -1));
+	lines.emplace_back(InventoryDumpFormat("PaneCount: 4"));
+	lines.emplace_back("PaneOrder: 0=player_inventory 1=player_offer 2=npc_offer 3=npc_inventory");
+	lines.emplace_back("MetaCursorOrder: pane_index_then_row_0_top_to_bottom");
+	lines.emplace_back(InventoryDumpFormat("VisibleRowCapacity: %ld", GetBarterVisibleRowCapacity()));
+	lines.emplace_back(InventoryDumpFormat("SelectedPane: %ld", selectedPane));
+	lines.emplace_back(InventoryDumpFormat("SelectedPaneName: %s", GetBarterPaneName(selectedPane)));
+	lines.emplace_back(InventoryDumpFormat("SelectedRow: %ld", selectedRow));
+	lines.emplace_back(InventoryDumpFormat("SelectedItem: %ld", reinterpret_cast<long>(selectedItem)));
+	lines.emplace_back(InventoryDumpFormat("Pane0RowCount: %ld", counts[0]));
+	lines.emplace_back(InventoryDumpFormat("Pane1RowCount: %ld", counts[1]));
+	lines.emplace_back(InventoryDumpFormat("Pane2RowCount: %ld", counts[2]));
+	lines.emplace_back(InventoryDumpFormat("Pane3RowCount: %ld", counts[3]));
+	lines.emplace_back(InventoryDumpFormat("PlayerOfferFooter: %s", GetBarterOfferFooterText(isPartyTrade, true).c_str()));
+	lines.emplace_back(InventoryDumpFormat("NpcOfferFooter: %s", GetBarterOfferFooterText(isPartyTrade, false).c_str()));
+	lines.emplace_back(InventoryDumpFormat("PlayerInventoryWeight: %ld", player ? fo::func::item_total_weight(player) : 0));
+	lines.emplace_back(InventoryDumpFormat("NpcInventoryWeight: %ld", npc ? fo::func::item_total_weight(npc) : 0));
+	if (player && player->IsCritter()) {
+		lines.emplace_back(InventoryDumpFormat("PlayerCarryWeight: %ld", fo::func::stat_level(player, fo::STAT_carry_amt)));
+	}
+	if (npc && npc->IsCritter()) {
+		lines.emplace_back(InventoryDumpFormat("NpcCarryWeight: %ld", fo::func::stat_level(npc, fo::STAT_carry_amt)));
+	}
+	return lines;
+}
+
+static std::vector<std::string> BuildBarterPaneLines(long paneIndex, fo::GameObject* owner, long rowCount, long selectedPane) {
+	std::vector<std::string> lines;
+	lines.emplace_back(InventoryDumpFormat("PaneIndex: %ld", paneIndex));
+	lines.emplace_back(InventoryDumpFormat("PaneName: %s", GetBarterPaneName(paneIndex)));
+	lines.emplace_back(InventoryDumpFormat("MetaCursorSelectedPane: %s", (paneIndex == selectedPane) ? "yes" : "no"));
+	lines.emplace_back(InventoryDumpFormat("OwnerName: %s", GetObjectName(owner).c_str()));
+	lines.emplace_back(InventoryDumpFormat("OwnerObjPtr: %ld", reinterpret_cast<long>(owner)));
+	lines.emplace_back(InventoryDumpFormat("OwnerID: %ld", owner ? owner->id : -1));
+	lines.emplace_back(InventoryDumpFormat("OwnerPID: %ld", owner ? owner->protoId : -1));
+	lines.emplace_back(InventoryDumpFormat("OwnerType: %s", GetInventoryDumpObjectTypeName(owner)));
+	lines.emplace_back(InventoryDumpFormat("RowCount: %ld", rowCount));
+	lines.emplace_back("RowOrder: row_0_is_top_of_full_ui_list");
+	return lines;
+}
+
+static std::vector<std::string> BuildBarterStackLines(
+	long paneIndex,
+	long row,
+	fo::GameObject* examiner,
+	fo::GameObject* owner,
+	fo::GameObject* item,
+	long stackCount,
+	fo::GameObject* armor,
+	fo::GameObject* left,
+	fo::GameObject* right,
+	bool isSelected
+) {
+	std::vector<std::string> lines;
+	lines.emplace_back(InventoryDumpFormat("PaneIndex: %ld", paneIndex));
+	lines.emplace_back(InventoryDumpFormat("PaneName: %s", GetBarterPaneName(paneIndex)));
+	lines.emplace_back(InventoryDumpFormat("SelectedByMetaCursor: %s", isSelected ? "yes" : "no"));
+
+	const auto stackLines = BuildLootStackLines(examiner, row, item, stackCount, armor, left, right);
+	lines.insert(lines.end(), stackLines.begin(), stackLines.end());
+	return lines;
+}
+
+bool Inventory::DumpBarterWindow(long selectedPane, long selectedRow, fo::GameObject* selectedItem) {
+	if ((GetLoopFlags() & BARTER) == 0) return false;
+
+	fo::GameObject* player = fo::var::inven_dude;
+	if (!player) player = fo::var::obj_dude;
+	fo::GameObject* npc = fo::var::dialog_target;
+	if (!npc) npc = fo::var::target_stack[0];
+	if (!player || !npc) return false;
+
+	fo::GameObject* owners[4] = {
+		player,
+		fo::var::ptable,
+		fo::var::btable,
+		npc,
+	};
+	long counts[4] = {0, 0, 0, 0};
+	for (long paneIndex = 0; paneIndex < 4; paneIndex++) {
+		counts[paneIndex] = GetUiListRowCount(owners[paneIndex]);
+	}
+
+	PrintInventoryDumpBlock("BarterWindow", BuildBarterWindowLines(
+		player,
+		npc,
+		fo::var::dialog_target_is_party != 0,
+		selectedPane,
+		selectedRow,
+		selectedItem,
+		counts
+	));
+
+	for (long paneIndex = 0; paneIndex < 4; paneIndex++) {
+		fo::GameObject* owner = owners[paneIndex];
+		if (!owner) continue;
+
+		const std::string paneTitle = InventoryDumpFormat("BarterPane_%ld", paneIndex);
+		PrintInventoryDumpBlock(paneTitle.c_str(), BuildBarterPaneLines(paneIndex, owner, counts[paneIndex], selectedPane));
+
+		fo::GameObject* armor = (owner->IsCritter()) ? fo::func::inven_worn(owner) : nullptr;
+		fo::GameObject* left = (owner->IsCritter()) ? fo::func::inven_left_hand(owner) : nullptr;
+		fo::GameObject* right = (owner->IsCritter()) ? fo::func::inven_right_hand(owner) : nullptr;
+		fo::GameObject* examiner = player;
+		if (!examiner) examiner = owner;
+
+		for (long row = 0; row < counts[paneIndex]; row++) {
+			fo::GameObject* item = GetUiListItemAtRow(owner, row);
+			const long stackCount = GetUiListStackCountAtRow(owner, row);
+			if (!item || stackCount <= 0) continue;
+
+			const bool isSelected = paneIndex == selectedPane
+				&& row == selectedRow
+				&& item == selectedItem;
+			const std::string title = InventoryDumpFormat("BarterPane_%ld_Row_%ld", paneIndex, row);
+			PrintInventoryDumpBlock(title.c_str(), BuildBarterStackLines(
+				paneIndex,
+				row,
+				examiner,
+				owner,
+				item,
+				stackCount,
+				armor,
+				left,
+				right,
+				isSelected
+			));
+		}
+	}
+
+	return true;
+}
+
 static bool DumpOpenedInventoryScreen() {
 	fo::GameObject* owner = fo::var::inven_dude;
 	if (!owner) return false;

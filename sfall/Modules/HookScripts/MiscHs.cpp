@@ -99,8 +99,18 @@ static __declspec(naked) void OverrideCost_BarterPriceHook() {
 
 void BarterPriceHook_GetLastCosts(long& outPcTableCost, long& outNpcTableCost) {
 	if (!HookScripts::HookHasScript(HOOK_BARTERPRICE)) {
-		outPcTableCost = fo::func::item_total_cost(fo::var::ptable);
-		outNpcTableCost = fo::func::barter_compute_value(fo::var::obj_dude, fo::var::target_stack[0]);
+		const bool barterIsParty = (fo::var::dialog_target_is_party != 0);
+		fo::GameObject* playerTable = fo::var::ptable;
+		fo::GameObject* npcTable = fo::var::btable;
+		fo::GameObject* npc = fo::var::target_stack[0];
+
+		if (barterIsParty) {
+			outPcTableCost = playerTable ? fo::func::item_total_weight(playerTable) : 0;
+			outNpcTableCost = npcTable ? fo::func::item_total_weight(npcTable) : 0;
+		} else {
+			outPcTableCost = playerTable ? fo::func::item_total_cost(playerTable) : 0;
+			outNpcTableCost = (npc != nullptr) ? fo::func::barter_compute_value(fo::var::obj_dude, npc) : 0;
+		}
 		return;
 	}
 	outPcTableCost = lastTableCostPC;

@@ -135,6 +135,8 @@ void mf_bridge_inv_state(OpcodeContext&);
 
 void mf_bridge_inv_set_loot_owner(OpcodeContext&);
 
+void mf_bridge_dump_barter_window(OpcodeContext&);
+
 void mf_bridge_mouse_set(OpcodeContext&);
 
 void mf_bridge_mouse_sim(OpcodeContext&);

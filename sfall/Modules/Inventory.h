@@ -45,6 +45,7 @@ public:
 	static long GetUiListIndexAtRow(fo::GameObject* owner, long row);
 	static fo::GameObject* GetUiListItemAtRow(fo::GameObject* owner, long row);
 	static long GetUiListStackCountAtRow(fo::GameObject* owner, long row);
+	static bool DumpBarterWindow(long selectedPane, long selectedRow, fo::GameObject* selectedItem);
 };
 
 }

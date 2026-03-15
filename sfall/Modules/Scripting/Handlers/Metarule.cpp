@@ -82,6 +82,7 @@ static const SfallMetarule metarules[] = {
 	{"bridge_inv_reset",          mf_bridge_inv_reset,          0, 0},
 	{"bridge_inv_set_loot_owner", mf_bridge_inv_set_loot_owner, 1, 1, -1, {ARG_INT}},
 	{"bridge_inv_state",          mf_bridge_inv_state,          0, 0},
+	{"bridge_dump_barter_window", mf_bridge_dump_barter_window, 0, 0},
 	{"bridge_ini_cache_clear",    mf_bridge_ini_cache_clear,    0, 1, -1, {ARG_STRING}},
 	{"bridge_mouse_set",          mf_bridge_mouse_set,          2, 2, -1, {ARG_INT, ARG_INT}},
 	{"bridge_mouse_sim",          mf_bridge_mouse_sim,          3, 3, -1, {ARG_INT, ARG_INT, ARG_INT}},
