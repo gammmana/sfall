@@ -107,6 +107,8 @@ WRAP_WATCOM_FUNC1(long, block_for_tocks, long, ticks)
 WRAP_WATCOM_FUNC2(long, combat_turn, fo::GameObject*, critter, long, isDudeTurn) // Perform combat turn for a given critter
 WRAP_WATCOM_FUNC1(long, critter_body_type, fo::GameObject*, critter)
 WRAP_WATCOM_FUNC1(long, critter_is_dead, fo::GameObject*, critter)
+WRAP_WATCOM_FUNC1(long, critter_kill_count, long, killType)
+WRAP_WATCOM_FUNC1(const char*, critter_kill_name, long, killType)
 WRAP_WATCOM_FUNC1(long, critter_kill_count_type, fo::GameObject*, critter)
 WRAP_WATCOM_FUNC1(const char*, critter_name, fo::GameObject*, critter) // Returns the name of the critter
 WRAP_WATCOM_FUNC1(void, critter_pc_set_name, const char*, newName) // Change the name of playable character
@@ -285,6 +287,9 @@ WRAP_WATCOM_FUNC1(void, stat_recalc_derived, fo::GameObject*, critter)
 WRAP_WATCOM_FUNC3(long, stat_set_bonus, fo::GameObject*, critter, long, statID, long, amount)
 WRAP_WATCOM_FUNC2(long, stat_level, fo::GameObject*, critter, long, statId)
 WRAP_WATCOM_FUNC1(void, stat_pc_add_experience, long, amount) // Adds experience points to PC
+WRAP_WATCOM_FUNC1(long, stat_pc_get, long, pcStat)
+WRAP_WATCOM_FUNC0(long, stat_pc_min_exp)
+WRAP_WATCOM_FUNC1(const char*, stat_level_description, long, statValue)
 WRAP_WATCOM_FUNC0(long, text_curr)
 WRAP_WATCOM_FUNC1(long, text_font, long, fontNum)
 WRAP_WATCOM_FUNC2(long, text_font_exists, long, fontNum, DWORD*, fontPtr)
@@ -306,6 +311,8 @@ WRAP_WATCOM_FUNC1(void, win_show, DWORD, winRef)
 WRAP_WATCOM_FUNC0(long, windowWidth)
 WRAP_WATCOM_FUNC1(void, wmCarUseGas, long, gasAmount)
 WRAP_WATCOM_FUNC1(long, wmEvalTileNumForPlacement, long, tile)
+WRAP_WATCOM_FUNC1(long, wmAreaIsKnown, long, areaIdx)
+WRAP_WATCOM_FUNC2(long, wmGetAreaIdxName, long, areaIdx, char*, name)
 WRAP_WATCOM_FUNC0(void, wmPartyWalkingStep)
 WRAP_WATCOM_FUNC1(void, wmRefreshInterfaceOverlay, long, isRedraw)
 

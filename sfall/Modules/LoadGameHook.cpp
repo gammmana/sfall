@@ -25,6 +25,7 @@
 #include "..\version.h"
 
 #include "BugFixes.h"
+#include "Console.h"
 #include "CritterStats.h"
 #include "ExtraSaveSlots.h"
 #include "FileSystem.h"
@@ -580,6 +581,7 @@ static __declspec(naked) void CharacterHook() {
 	__asm {
 		push edx;
 		_InLoop2(1, CHARSCREEN);
+		call Console::LogCharacterScreen;
 		call PerksEnterCharScreen;
 		xor  eax, eax;
 		call fo::funcoffs::editor_design_;

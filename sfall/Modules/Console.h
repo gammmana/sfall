@@ -36,6 +36,7 @@ public:
 
 	static void PrintFile(const char* msg);
 	static void __fastcall PrintFloatToDebugLog(fo::GameObject* object, const char* msg);
+	static void LogCharacterScreen();
 };
 
 }
