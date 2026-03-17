@@ -419,6 +419,7 @@
     <ClInclude Include="Modules\Module.h" />
     <ClInclude Include="Modules\AI.h" />
     <ClInclude Include="Modules\DamageMod.h" />
+    <ClInclude Include="Modules\DialogDebug.h" />
     <ClInclude Include="Modules\Animations.h" />
     <ClInclude Include="Modules\MiscPatches.h" />
     <ClInclude Include="Modules\Karma.h" />
@@ -559,6 +560,7 @@
     <ClCompile Include="ModuleManager.cpp" />
     <ClCompile Include="Modules\AI.cpp" />
     <ClCompile Include="Modules\DamageMod.cpp" />
+    <ClCompile Include="Modules\DialogDebug.cpp" />
     <ClCompile Include="Modules\Animations.cpp" />
     <ClCompile Include="Modules\MainLoopHook.cpp" />
     <ClCompile Include="Modules\MetaruleExtender.cpp" />

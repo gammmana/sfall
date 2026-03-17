@@ -34,6 +34,7 @@
 #include "Modules\CritterStats.h"
 #include "Modules\CritterPoison.h"
 #include "Modules\DamageMod.h"
+#include "Modules\DialogDebug.h"
 #include "Modules\DebugEditor.h"
 #include "Modules\Drugs.h"
 #include "Modules\Elevators.h"
@@ -159,6 +160,7 @@ static void InitModules() {
 	manager.add<Premade>();
 	manager.add<Reputations>();
 	manager.add<KillCounter>();
+	manager.add<DialogDebug>();
 
 	manager.add<MainMenu>();
 	manager.add<HeroAppearance>();

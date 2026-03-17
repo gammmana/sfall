@@ -296,6 +296,9 @@
     <ClInclude Include="Modules\DamageMod.h">
       <Filter>Modules</Filter>
     </ClInclude>
+    <ClInclude Include="Modules\DialogDebug.h">
+      <Filter>Modules</Filter>
+    </ClInclude>
     <ClInclude Include="Modules\Drugs.h">
       <Filter>Modules</Filter>
     </ClInclude>
@@ -693,6 +696,9 @@
       <Filter>Modules</Filter>
     </ClCompile>
     <ClCompile Include="Modules\DamageMod.cpp">
+      <Filter>Modules</Filter>
+    </ClCompile>
+    <ClCompile Include="Modules\DialogDebug.cpp">
       <Filter>Modules</Filter>
     </ClCompile>
     <ClCompile Include="Modules\Drugs.cpp">
