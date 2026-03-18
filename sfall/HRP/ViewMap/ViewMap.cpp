@@ -26,6 +26,48 @@ const long square_length = 100;
 
 static sf::Rectangle obj_on_screen_rect;
 
+static bool MouseIsOnScrollEdge() {
+	long mouseX, mouseY;
+	fo::func::mouse_get_position(&mouseX, &mouseY);
+
+	return mouseX <= fo::var::scr_size.x || mouseX >= fo::var::scr_size.offx ||
+	       mouseY <= fo::var::scr_size.y || mouseY >= fo::var::scr_size.offy;
+}
+
+static long ClampToScreen(long value, long min, long max) {
+	if (value < min) return min;
+	if (value > max) return max;
+	return value;
+}
+
+static void RecoverScrollBlockedCursor(const char* reason) {
+	static DWORD lastWarningTick = 0;
+
+	fo::GameObject* dude = fo::var::obj_dude;
+	if (!dude || dude->tile < 0) return;
+
+	DWORD now = GetTickCount();
+	if ((now - lastWarningTick) >= 250) {
+		fo::func::debug_printf("\n[SFALL] Warning: game cursor caught by a scroll block (%s); centering on player and moving cursor over dude.", reason);
+		lastWarningTick = now;
+	}
+
+	if (dude->elevation != fo::var::map_elevation) {
+		fo::func::map_set_elevation(dude->elevation);
+	}
+
+	fo::func::tile_scroll_to(dude->tile, 2);
+
+	fo::BoundRect rect;
+	fo::func::obj_bound(dude, &rect);
+
+	long mouseX = ClampToScreen((rect.x + rect.offx) / 2, fo::var::scr_size.x, fo::var::scr_size.offx);
+	long mouseY = ClampToScreen((rect.y + rect.offy) / 2, fo::var::scr_size.y, fo::var::scr_size.offy);
+
+	fo::func::mouse_set_position(mouseX, mouseY);
+	fo::func::gmouse_bk_process();
+}
+
 long ViewMap::SCROLL_DIST_X;
 long ViewMap::SCROLL_DIST_Y;
 bool ViewMap::IGNORE_PLAYER_SCROLL_LIMITS;
@@ -96,6 +138,7 @@ static long __fastcall tile_set_center(long tile, long modeFlags) {
 			ViewMap::GetTileCoord(fo::var::getInt(FO_VAR_tile_center_tile), centerX, centerY);
 
 			if ((16 * std::abs(centerX - dudeX)) < distanceX || (12 * std::abs(centerY - dudeY)) < distanceY) {
+				if (MouseIsOnScrollEdge()) RecoverScrollBlockedCursor("player scroll limit");
 				return -1; // scroll block
 			}
 		}
@@ -103,7 +146,10 @@ static long __fastcall tile_set_center(long tile, long modeFlags) {
 
 	if (!(modeFlags & 2) && fo::var::getInt(FO_VAR_scroll_blocking_on)) {
 		long result = EdgeBorder::CheckBorder(tile);
-		if (!result) return -1; // scroll block
+		if (!result) {
+			if (MouseIsOnScrollEdge()) RecoverScrollBlockedCursor("map edge");
+			return -1; // scroll block
+		}
 		if (result == 1) modeFlags |= 1; // redraw
 	}
 

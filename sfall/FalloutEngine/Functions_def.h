@@ -72,6 +72,7 @@ WRAP_WATCOM_FFUNC3(long, square_num, long, squareX, long, squaryY, long, elevati
 WRAP_WATCOM_FFUNC6(long, text_object_create, fo::GameObject*, object, const char*, text, long, font, long, colorText, long, colorOutline, fo::BoundRect*, rect)
 WRAP_WATCOM_FFUNC3(long, tile_coord, long, tile, long*, outX, long*, outY) // the fourth argument of the function is not used
 WRAP_WATCOM_FFUNC3(long, tile_num_in_direction, long, tile, long, rotation, long, distance)
+WRAP_WATCOM_FUNC2(long, tile_scroll_to, long, tile, long, flags)
 WRAP_WATCOM_FFUNC8(void, trans_cscale, void*, fromBuff, long, width, long, height, long, fromPitch, void*, toBuff, long, toWidth, long, toHeight, long, toPitch)
 WRAP_WATCOM_FFUNC3(void, win_clip, fo::Window*, window, fo::RectList**, rects, void*, buffer)
 WRAP_WATCOM_FFUNC6(void, win_print, long, winID, const char*, text, long, textWidth, long, xPos, long, yPos, long, colorFlags)
@@ -132,6 +133,7 @@ WRAP_WATCOM_FUNC0(long, get_input)
 WRAP_WATCOM_FUNC1(fo::BlendColorTableData*, getColorBlendTable, long, color)
 // Searches for message ID in given message file and places result in result argument
 WRAP_WATCOM_FUNC3(const char*, getmsg, const fo::MessageList*, fileAddr, fo::MessageNode*, result, long, messageId)
+WRAP_WATCOM_FUNC0(void, gmouse_bk_process)
 WRAP_WATCOM_FUNC1(void, gmouse_3d_set_mode, long, mode)
 WRAP_WATCOM_FUNC1(long, gmouse_set_cursor, long, picNum)
 WRAP_WATCOM_FUNC0(void, grid_toggle)
@@ -191,6 +193,7 @@ WRAP_WATCOM_FUNC2(long, load_frame, const char*, fileName, fo::FrmFile**, frmPtr
 WRAP_WATCOM_FUNC4(BYTE*, loadPCX, const char*, fileName, long*, width, long*, height, BYTE*, palette)
 WRAP_WATCOM_FUNC1(fo::Program*, loadProgram, const char*, fileName)
 WRAP_WATCOM_FUNC1(const char*, map_get_short_name, long, mapID)
+WRAP_WATCOM_FUNC1(long, map_set_elevation, long, elevation)
 WRAP_WATCOM_FUNC2(void, MapDirErase, const char*, folder, const char*, ext)
 WRAP_WATCOM_FUNC1(void, mem_free, void*, mem)
 WRAP_WATCOM_FUNC2(void*, mem_realloc, void*, lpmem, DWORD, msize)
