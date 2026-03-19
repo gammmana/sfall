@@ -22,7 +22,10 @@
 
 #include "..\HRP\Init.h"
 
+#include "ExtraSaveSlots.h"
 #include "MainMenu.h"
+
+#include <cstdlib>
 
 namespace sfall
 {
@@ -40,6 +43,112 @@ long MainMenu::mTextOffset; // sum: x + (y * w)
 static long OverrideColour, OverrideColour2;
 static bool autoJump2LoadScreenEnabled = false;
 static bool autoJump2LoadScreenPending = false;
+static bool autoLoadLastSaveOnDeathEnabled = true;
+static bool autoLoadLastSaveOnDeathPending = false;
+static bool autoLoadLastSaveOnDeathArmed = false;
+static bool extraSaveSlotsEnabled = false;
+static long autoLoadLastSaveOnDeathPage = 0;
+static long autoLoadLastSaveOnDeathSlot = 0;
+
+static bool TryParseSaveSlotDirectory(const char* dirName, long& absoluteSlot) {
+	if (_strnicmp(dirName, "slot", 4) != 0) return false;
+
+	char* endPtr = nullptr;
+	long slotNumber = std::strtol(dirName + 4, &endPtr, 10);
+	if (endPtr == dirName + 4 || *endPtr != '\0') return false;
+	if (slotNumber <= 0 || slotNumber > 10000) return false;
+
+	absoluteSlot = slotNumber - 1;
+	return true;
+}
+
+static bool TryFindLatestSaveSlot(long& page, long& slot) {
+	char searchPath[MAX_PATH];
+	sprintf_s(searchPath, MAX_PATH, "%s\\savegame\\slot*", fo::var::patches);
+
+	WIN32_FIND_DATAA findData = {};
+	HANDLE searchHandle = FindFirstFileA(searchPath, &findData);
+	if (searchHandle == INVALID_HANDLE_VALUE) return false;
+
+	bool found = false;
+	long latestAbsoluteSlot = 0;
+	FILETIME latestWriteTime = {};
+
+	do {
+		if ((findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0) continue;
+		if (findData.cFileName[0] == '.') continue;
+
+		long absoluteSlot = 0;
+		if (!TryParseSaveSlotDirectory(findData.cFileName, absoluteSlot)) continue;
+		if (!extraSaveSlotsEnabled && absoluteSlot >= 10) continue;
+
+		char savePath[MAX_PATH];
+		sprintf_s(savePath, MAX_PATH, "%s\\savegame\\%s\\SAVE.DAT", fo::var::patches, findData.cFileName);
+
+		WIN32_FILE_ATTRIBUTE_DATA saveAttributes = {};
+		if (!GetFileAttributesExA(savePath, GetFileExInfoStandard, &saveAttributes)) continue;
+
+		if (!found || CompareFileTime(&saveAttributes.ftLastWriteTime, &latestWriteTime) > 0) {
+			found = true;
+			latestAbsoluteSlot = absoluteSlot;
+			latestWriteTime = saveAttributes.ftLastWriteTime;
+		}
+	} while (FindNextFileA(searchHandle, &findData));
+
+	FindClose(searchHandle);
+
+	if (!found) return false;
+
+	page = latestAbsoluteSlot - (latestAbsoluteSlot % 10);
+	slot = latestAbsoluteSlot % 10;
+	return true;
+}
+
+long MainMenu::GetInjectedMainMenuInput() {
+	if (autoLoadLastSaveOnDeathEnabled && autoLoadLastSaveOnDeathPending) {
+		autoLoadLastSaveOnDeathPending = false;
+		autoLoadLastSaveOnDeathArmed = false;
+
+		long page = 0;
+		long slot = 0;
+		if (TryFindLatestSaveSlot(page, slot)) {
+			autoLoadLastSaveOnDeathPage = page;
+			autoLoadLastSaveOnDeathSlot = slot;
+			autoLoadLastSaveOnDeathArmed = true;
+			dlog_f("AutoLoadLastSaveOnDeath: loading latest save from page %d slot %d.\n",
+				DL_MAIN, (page / 10), slot + 1);
+			return 'l';
+		}
+
+		dlogr("AutoLoadLastSaveOnDeath: no saves found, staying on the main menu.", DL_MAIN);
+	}
+
+	if (autoJump2LoadScreenEnabled && autoJump2LoadScreenPending) {
+		autoJump2LoadScreenPending = false;
+		dlogr("AutoJump2LoadScreen: injecting Load Game hotkey (MainMenu fallback).", DL_MAIN);
+		return 'l';
+	}
+
+	return 0;
+}
+
+void MainMenu::QueueAutoLoadLastSaveOnDeath() {
+	autoLoadLastSaveOnDeathPending = true;
+	autoLoadLastSaveOnDeathArmed = false;
+}
+
+long MainMenu::OverrideLoadGameMode(long mode) {
+	if (!autoLoadLastSaveOnDeathArmed) return mode;
+
+	autoLoadLastSaveOnDeathArmed = false;
+	ExtraSaveSlots::SetSaveSlot(autoLoadLastSaveOnDeathPage, autoLoadLastSaveOnDeathSlot);
+	fo::var::quick_done = 1;
+
+	dlog_f("AutoLoadLastSaveOnDeath: forcing quick load from page %d slot %d.\n",
+		DL_MAIN, (autoLoadLastSaveOnDeathPage / 10), autoLoadLastSaveOnDeathSlot + 1);
+
+	return 2; // LOAD_SAVE_MODE_QUICK
+}
 
 static __declspec(naked) void MainMenuHookButtonYOffset() {
 	static const DWORD MainMenuButtonYHookRet = 0x48184A;
@@ -75,17 +184,18 @@ static void __fastcall main_menu_create_hook_print_text(long xPos, const char* t
 }
 
 static long __stdcall main_menu_loop_hook() {
-	if (autoJump2LoadScreenEnabled && autoJump2LoadScreenPending) {
-		autoJump2LoadScreenPending = false;
-		dlogr("AutoJump2LoadScreen: injecting Load Game hotkey (MainMenu fallback).", DL_MAIN);
-		return 'l';
-	}
+	long input = MainMenu::GetInjectedMainMenuInput();
+	if (input) return input;
 	return fo::func::get_input();
 }
 
 void MainMenu::init() {
 	autoJump2LoadScreenEnabled = (IniReader::GetConfigInt("Misc", "AutoJump2LoadScreen", 0) != 0);
 	autoJump2LoadScreenPending = autoJump2LoadScreenEnabled;
+	autoLoadLastSaveOnDeathEnabled = (IniReader::GetConfigInt("Misc", "AutoLoadLastSaveOnDeath", 1) != 0);
+	autoLoadLastSaveOnDeathPending = false;
+	autoLoadLastSaveOnDeathArmed = false;
+	extraSaveSlotsEnabled = (IniReader::GetConfigInt("Misc", "ExtraSaveSlots", 0) != 0);
 
 	int offset;
 	if (offset = IniReader::GetConfigInt("Misc", "MainMenuCreditsOffsetX", 0)) {

@@ -28,6 +28,10 @@ public:
 	const char* name() { return "MainMenu"; }
 	void init();
 
+	static long GetInjectedMainMenuInput();
+	static void QueueAutoLoadLastSaveOnDeath();
+	static long OverrideLoadGameMode(long mode);
+
 	static long mXOffset;
 	static long mYOffset;
 	static long mTextOffset;

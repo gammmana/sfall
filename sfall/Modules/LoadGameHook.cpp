@@ -31,6 +31,7 @@
 #include "FileSystem.h"
 #include "HeroAppearance.h"
 #include "HookScripts.h"
+#include "MainMenu.h"
 #include "Objects.h"
 #include "PartyControl.h"
 #include "Perks.h"
@@ -240,6 +241,10 @@ end:
 	}
 }
 
+static long __stdcall OverrideLoadGameMode(long mode) {
+	return MainMenu::OverrideLoadGameMode(mode);
+}
+
 // Called right before savegame slot is being loaded
 static bool LoadGame_Before() {
 	saveTimeIntervalStart(timeBeforeGameStart);
@@ -288,6 +293,13 @@ errorLoad:
 
 // called whenever game is being reset (prior to loading a save or when returning to main menu)
 static bool __stdcall GameReset(DWORD isGameLoad) {
+	if (!isGameLoad && fo::var::obj_dude &&
+		(fo::var::obj_dude->critter.damageFlags & (fo::DamageFlag::DAM_DEAD | fo::DamageFlag::DAM_KNOCKED_OUT)))
+	{
+		dlogr("AutoLoadLastSaveOnDeath: queued latest-save autoload after game over.", DL_MAIN);
+		MainMenu::QueueAutoLoadLastSaveOnDeath();
+	}
+
 	onGameReset.invoke();
 	if (isDebug) {
 		char* str = (isGameLoad) ? "on Load" : "on Exit";
@@ -309,6 +321,8 @@ static void __stdcall LoadGame_After() {
 static __declspec(naked) void LoadGame_hook() {
 	__asm {
 		_InLoop(1, LOADGAME);
+		push eax;
+		call OverrideLoadGameMode;
 		call fo::funcoffs::LoadGame_;
 		_InLoop(0, LOADGAME);
 		cmp  eax, 1;
