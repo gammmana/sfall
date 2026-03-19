@@ -20,6 +20,7 @@
 
 #include "..\main.h"
 #include "..\FalloutEngine\Fallout2.h"
+#include "..\InputFuncs.h"
 #include "..\SimplePatch.h"
 #include "..\Utils.h"
 #include "ExtraArt.h"
@@ -127,6 +128,82 @@ struct InterfaceCustomFrm {
 };
 
 static BYTE movePointBackground[16 * 9 * 5];
+
+struct BarterCursorTarget {
+	long x;
+	long y;
+};
+
+static bool barterCursorEnabled = false;
+static bool barterCursorPendingOpenWarp = false;
+static bool barterCursorInitialized = false;
+static long barterCursorCurrentPane = 0;
+
+static constexpr std::array<BarterCursorTarget, 4> barterCursorTargets {{
+	{52, 131},
+	{201, 120},
+	{286, 120},
+	{429, 135},
+}};
+
+static void ResetBarterCursorState() {
+	barterCursorPendingOpenWarp = false;
+	barterCursorInitialized = false;
+	barterCursorCurrentPane = 0;
+}
+
+static fo::Window* GetBarterCursorWindow() {
+	if (!barterCursorEnabled || (GetLoopFlags() & BARTER) == 0) return nullptr;
+	return Interface::GetWindow(Inventory);
+}
+
+static bool WarpBarterCursorToPane(long pane) {
+	fo::Window* win = GetBarterCursorWindow();
+	if (win == nullptr || pane < 0 || pane >= static_cast<long>(barterCursorTargets.size())) return false;
+
+	const auto& target = barterCursorTargets[pane];
+	fo::func::mouse_set_position(win->rect.x + target.x, win->rect.y + target.y);
+	fo::func::gmouse_bk_process();
+
+	barterCursorCurrentPane = pane;
+	barterCursorInitialized = true;
+	return true;
+}
+
+static void BarterCursorOnGameModeChange(DWORD) {
+	if (!barterCursorEnabled) return;
+
+	if (GetLoopFlags() & BARTER) {
+		barterCursorCurrentPane = 0;
+		barterCursorInitialized = false;
+		barterCursorPendingOpenWarp = true;
+	} else {
+		ResetBarterCursorState();
+	}
+}
+
+static void BarterCursorOnInputLoop() {
+	if (!barterCursorEnabled || !barterCursorPendingOpenWarp || barterCursorInitialized) return;
+
+	// Delay the initial warp until the barter inventory subwindow has been created.
+	if (!WarpBarterCursorToPane(0)) return;
+
+	barterCursorPendingOpenWarp = false;
+}
+
+static void BarterCursorOnKeyPressed(DWORD dxKey, bool pressed) {
+	if (!barterCursorEnabled || !pressed || dxKey != DIK_NUMPAD3) return;
+	if ((GetLoopFlags() & BARTER) == 0) return;
+
+	if (!barterCursorInitialized) {
+		barterCursorPendingOpenWarp = false;
+	}
+
+	const long nextPane = (barterCursorCurrentPane + 1) % static_cast<long>(barterCursorTargets.size());
+	if (WarpBarterCursorToPane(nextPane)) {
+		barterCursorPendingOpenWarp = false;
+	}
+}
 
 static void DrawExtendedApBar() {
 	const char* const ifaceApBarFrm = "iface_apbar_e.frm"; // 183x13 at 266,10 (x = width - 374)
@@ -1405,6 +1482,9 @@ static void ExpandedInventoryPatch() {
 }
 
 void Interface::init() {
+	barterCursorEnabled = IniReader::GetConfigInt("Interface", "ExpandBarter", 0) != 0;
+	ResetBarterCursorState();
+
 	InterfaceWindowPatch();
 	InventoryCharacterRotationSpeedPatch();
 	UIAnimationSpeedPatch();
@@ -1443,6 +1523,13 @@ void Interface::init() {
 	// Add missing sounds to the 'Done' and 'Cancel' buttons in the 'Custom' disposition of the combat control panel
 	MakeCalls(gdCustomSelect_hack_buttons, {0x44A100, 0x44A151});
 	MakeCall(0x44A47D, gdCustomSelect_hack_keyretn);
+
+	if (barterCursorEnabled) {
+		LoadGameHook::OnGameModeChange() += BarterCursorOnGameModeChange;
+		LoadGameHook::OnGameReset() += ResetBarterCursorState;
+		OnInputLoop() += BarterCursorOnInputLoop;
+		OnKeyPressed() += BarterCursorOnKeyPressed;
+	}
 
 	LoadGameHook::OnGameInit() += []() {
 		// Needs to be invoked in OnGameInit when screen height is already known and db is initialized.
