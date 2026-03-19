@@ -210,6 +210,7 @@ WRAP_WATCOM_FUNC0(void, mouse_show)
 WRAP_WATCOM_FUNC0(void, mouse_hide)
 WRAP_WATCOM_FUNC0(long, new_obj_id)
 WRAP_WATCOM_FUNC2(void, obj_bound, fo::GameObject*, object, fo::BoundRect*, boundRect) // Calculates bounding box (rectangle) for a given object
+WRAP_WATCOM_FUNC1(bool, obj_action_can_use, fo::GameObject*, object)
 WRAP_WATCOM_FUNC1(long, obj_destroy, fo::GameObject*, object)
 WRAP_WATCOM_FUNC2(long, obj_dist, fo::GameObject*, obj_src, fo::GameObject*, obj_trg)
 WRAP_WATCOM_FUNC2(void, obj_drop, fo::GameObject*, source, fo::GameObject*, objectToDrop)
@@ -234,6 +235,7 @@ WRAP_WATCOM_FUNC2(long, perk_level, fo::GameObject*, critter, long, perkId)
 WRAP_WATCOM_FUNC6(long, pick_death, fo::GameObject*, attacker, fo::GameObject*, target, fo::GameObject*, weapon, long, amount, long, anim, long, hitFromBack)
 WRAP_WATCOM_FUNC0(void, process_bk)
 WRAP_WATCOM_FUNC2(const char*, proto_get_msg_info, long, pid, long, msgType) // msgType: 0 - name, 1 - desc
+WRAP_WATCOM_FUNC1(bool, proto_action_can_use_on, long, pid)
 WRAP_WATCOM_FUNC0(void, proto_dude_update_gender)
 WRAP_WATCOM_FUNC2(void, proto_make_path, char*, buffer, long, pid)
 // Places pointer to a prototype structure into ptrPtr and returns 0 on success or -1 on failure

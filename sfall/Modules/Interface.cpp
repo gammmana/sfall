@@ -24,6 +24,7 @@
 #include "..\SimplePatch.h"
 #include "..\Utils.h"
 #include "ExtraArt.h"
+#include "..\Game\items.h"
 #include "Graphics.h"
 #include "LoadGameHook.h"
 #include "Worldmap.h"
@@ -128,6 +129,267 @@ struct InterfaceCustomFrm {
 };
 
 static BYTE movePointBackground[16 * 9 * 5];
+
+enum class InterfaceItemAction : long {
+	Default          = -1,
+	Use              = 0,
+	Primary          = 1,
+	PrimaryAiming    = 2,
+	Secondary        = 3,
+	SecondaryAiming  = 4,
+	Reload           = 5,
+};
+
+enum class ActiveHandDisplayMode : long {
+	None   = 0,
+	Use    = 1,
+	UseOn  = 2,
+	Attack = 3,
+	Reload = 4,
+};
+
+struct ActiveHandLogSnapshot {
+	bool valid = false;
+	fo::HandSlot hand = fo::HandSlot::Left;
+	fo::GameObject* item = nullptr;
+	long action = static_cast<long>(InterfaceItemAction::Default);
+	long hitMode = -1;
+	ActiveHandDisplayMode displayMode = ActiveHandDisplayMode::None;
+	bool aimed = false;
+};
+
+struct ActiveHandUiState {
+	ActiveHandLogSnapshot snapshot;
+	long apCost = -1;
+	std::string handName;
+	std::string itemName;
+	std::string modeName;
+};
+
+static ActiveHandLogSnapshot activeHandLogSnapshot;
+static constexpr const char* kActiveHandLogSeparator = "------------------------------------------------------------------------------\n";
+
+static void ResetActiveHandLogSnapshot() {
+	activeHandLogSnapshot = {};
+}
+
+static std::string GetActiveHandSlotName(fo::HandSlot slot) {
+	return (slot == fo::HandSlot::Right) ? "Item2 (right)" : "Item1 (left)";
+}
+
+static std::string GetActiveHandItemName(fo::GameObject* item) {
+	if (!item) return "No item";
+
+	const char* name = fo::func::object_name(item);
+	return (name && *name) ? name : "<unnamed>";
+}
+
+static bool GetActiveHandHitMode(const fo::ItemButtonItem& itemState, fo::HandSlot slot, fo::AttackType& hitMode, bool& aimed) {
+	aimed = false;
+
+	switch (static_cast<InterfaceItemAction>(itemState.mode)) {
+	case InterfaceItemAction::Primary:
+		hitMode = static_cast<fo::AttackType>(itemState.primaryAttack);
+		return true;
+	case InterfaceItemAction::PrimaryAiming:
+		hitMode = static_cast<fo::AttackType>(itemState.primaryAttack);
+		aimed = true;
+		return true;
+	case InterfaceItemAction::Secondary:
+		hitMode = static_cast<fo::AttackType>(itemState.secondaryAttack);
+		return true;
+	case InterfaceItemAction::SecondaryAiming:
+		hitMode = static_cast<fo::AttackType>(itemState.secondaryAttack);
+		aimed = true;
+		return true;
+	case InterfaceItemAction::Reload:
+		hitMode = (slot == fo::HandSlot::Right)
+		        ? fo::AttackType::ATKTYPE_RWEAPON_RELOAD
+		        : fo::AttackType::ATKTYPE_LWEAPON_RELOAD;
+		return true;
+	default:
+		return false;
+	}
+}
+
+static const char* GetAttackModeName(fo::GameObject* item, fo::AttackType hitMode) {
+	switch (fo::func::item_w_anim_weap(item, hitMode)) {
+	case fo::Animation::ANIM_throw_punch:
+		switch (hitMode) {
+		case fo::AttackType::ATKTYPE_STRONGPUNCH:
+			return "Strong Punch";
+		case fo::AttackType::ATKTYPE_HAMMERPUNCH:
+			return "Hammer Punch";
+		case fo::AttackType::ATKTYPE_HAYMAKER:
+			return "Haymaker";
+		case fo::AttackType::ATKTYPE_JAB:
+			return "Jab";
+		case fo::AttackType::ATKTYPE_PALMSTRIKE:
+			return "Palm Strike";
+		case fo::AttackType::ATKTYPE_PIERCINGSTRIKE:
+			return "Piercing Strike";
+		default:
+			return "Punch";
+		}
+	case fo::Animation::ANIM_kick_leg:
+		switch (hitMode) {
+		case fo::AttackType::ATKTYPE_STRONGKICK:
+			return "Strong Kick";
+		case fo::AttackType::ATKTYPE_SNAPKICK:
+			return "Snap Kick";
+		case fo::AttackType::ATKTYPE_POWERKICK:
+			return "Power Kick";
+		case fo::AttackType::ATKTYPE_HIPKICK:
+			return "Hip Kick";
+		case fo::AttackType::ATKTYPE_HOOKKICK:
+			return "Hook Kick";
+		case fo::AttackType::ATKTYPE_PIERCINGKICK:
+			return "Piercing Kick";
+		default:
+			return "Kick";
+		}
+	case fo::Animation::ANIM_throw_anim:
+		return "Throw";
+	case fo::Animation::ANIM_thrust_anim:
+		return "Thrust";
+	case fo::Animation::ANIM_swing_anim:
+		return "Swing";
+	case fo::Animation::ANIM_fire_single:
+		return "Single";
+	case fo::Animation::ANIM_fire_burst:
+	case fo::Animation::ANIM_fire_continuous:
+		return "Burst";
+	default:
+		return "Primary";
+	}
+}
+
+static ActiveHandDisplayMode GetNonWeaponMode(fo::GameObject* item, std::string& modeName) {
+	if (!item) {
+		modeName = "N/A";
+		return ActiveHandDisplayMode::None;
+	}
+
+	if (fo::func::proto_action_can_use_on(item->protoId)) {
+		modeName = "Use On";
+		return ActiveHandDisplayMode::UseOn;
+	}
+
+	if (fo::func::obj_action_can_use(item)) {
+		modeName = "Use";
+		return ActiveHandDisplayMode::Use;
+	}
+
+	modeName = "N/A";
+	return ActiveHandDisplayMode::None;
+}
+
+static ActiveHandUiState CollectActiveHandUiState() {
+	ActiveHandUiState state;
+	if (!IsGameLoaded() || fo::var::interfaceWindow == -1 || fo::var::obj_dude == nullptr) return state;
+
+	const fo::HandSlot hand = (fo::var::itemCurrentItem == fo::HandSlot::Right)
+	                        ? fo::HandSlot::Right
+	                        : fo::HandSlot::Left;
+	const fo::ItemButtonItem& itemState = fo::var::itemButtonItems[hand];
+
+	state.snapshot.valid = true;
+	state.snapshot.hand = hand;
+	state.snapshot.item = itemState.item;
+	state.snapshot.action = itemState.mode;
+	state.handName = GetActiveHandSlotName(hand);
+	state.itemName = GetActiveHandItemName(itemState.item);
+
+	fo::AttackType hitMode;
+	bool aimed;
+	if (GetActiveHandHitMode(itemState, hand, hitMode, aimed)) {
+		state.snapshot.hitMode = static_cast<long>(hitMode);
+		state.snapshot.aimed = aimed;
+
+		if (static_cast<InterfaceItemAction>(itemState.mode) == InterfaceItemAction::Reload) {
+			state.snapshot.displayMode = ActiveHandDisplayMode::Reload;
+			state.modeName = "Reload";
+			if (itemState.item != nullptr) {
+				state.apCost = game::Items::item_w_mp_cost(fo::var::obj_dude, hitMode, 0);
+			}
+		} else {
+			state.snapshot.displayMode = ActiveHandDisplayMode::Attack;
+			state.modeName = GetAttackModeName(itemState.item, hitMode);
+			state.apCost = game::Items::item_w_mp_cost(fo::var::obj_dude, hitMode, aimed ? 1 : 0);
+		}
+	} else {
+		state.snapshot.displayMode = GetNonWeaponMode(itemState.item, state.modeName);
+		if (state.snapshot.displayMode != ActiveHandDisplayMode::None) {
+			state.apCost = 2;
+		}
+	}
+
+	if (state.modeName.empty()) {
+		state.modeName = "N/A";
+	}
+
+	return state;
+}
+
+static std::string JoinActiveHandChangeReasons(bool handChanged, bool itemChanged, bool modeChanged) {
+	std::string reasons;
+
+	if (handChanged) reasons = "hand";
+	if (itemChanged) {
+		if (!reasons.empty()) reasons += ", ";
+		reasons += "item";
+	}
+	if (modeChanged) {
+		if (!reasons.empty()) reasons += ", ";
+		reasons += "usage_mode";
+	}
+
+	return reasons;
+}
+
+static void PrintActiveHandLog(const ActiveHandUiState& state, bool handChanged, bool itemChanged, bool modeChanged) {
+	std::vector<std::string> lines;
+	lines.emplace_back("Changed: " + JoinActiveHandChangeReasons(handChanged, itemChanged, modeChanged));
+	lines.emplace_back("Hand: " + state.handName);
+	lines.emplace_back("Item: " + state.itemName);
+	lines.emplace_back("Mode: " + state.modeName);
+	lines.emplace_back("AP: " + ((state.apCost >= 0) ? std::to_string(state.apCost) : "n/a"));
+	lines.emplace_back(std::string("TargetedShot: ") + (state.snapshot.aimed ? "Yes" : "No"));
+
+	fo::func::debug_printf("%s", kActiveHandLogSeparator);
+	fo::func::debug_printf("| ActiveHand\n");
+	fo::func::debug_printf("%s", kActiveHandLogSeparator);
+	for (const auto& line : lines) {
+		fo::func::debug_printf("| %s\n", line.c_str());
+	}
+	fo::func::debug_printf("%s", kActiveHandLogSeparator);
+}
+
+static void ActiveHandLoggerOnInputLoop() {
+	const ActiveHandUiState state = CollectActiveHandUiState();
+	if (!state.snapshot.valid) {
+		ResetActiveHandLogSnapshot();
+		return;
+	}
+
+	if (!activeHandLogSnapshot.valid) {
+		activeHandLogSnapshot = state.snapshot;
+		return;
+	}
+
+	const bool handChanged = (activeHandLogSnapshot.hand != state.snapshot.hand);
+	const bool itemChanged = (activeHandLogSnapshot.item != state.snapshot.item);
+	const bool modeChanged = (activeHandLogSnapshot.action != state.snapshot.action)
+	                      || (activeHandLogSnapshot.hitMode != state.snapshot.hitMode)
+	                      || (activeHandLogSnapshot.displayMode != state.snapshot.displayMode)
+	                      || (activeHandLogSnapshot.aimed != state.snapshot.aimed);
+
+	if (handChanged || itemChanged || modeChanged) {
+		PrintActiveHandLog(state, handChanged, itemChanged, modeChanged);
+	}
+
+	activeHandLogSnapshot = state.snapshot;
+}
 
 struct BarterCursorTarget {
 	long x;
@@ -1523,6 +1785,9 @@ void Interface::init() {
 	// Add missing sounds to the 'Done' and 'Cancel' buttons in the 'Custom' disposition of the combat control panel
 	MakeCalls(gdCustomSelect_hack_buttons, {0x44A100, 0x44A151});
 	MakeCall(0x44A47D, gdCustomSelect_hack_keyretn);
+
+	OnInputLoop() += ActiveHandLoggerOnInputLoop;
+	LoadGameHook::OnGameReset() += ResetActiveHandLogSnapshot;
 
 	if (barterCursorEnabled) {
 		LoadGameHook::OnGameModeChange() += BarterCursorOnGameModeChange;
