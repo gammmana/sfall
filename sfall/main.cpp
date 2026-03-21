@@ -54,6 +54,7 @@
 #include "Modules\LoadGameHook.h"
 #include "Modules\LoadOrder.h"
 #include "Modules\MainLoopHook.h"
+#include "Modules\MetaCursorHighlight.h"
 #include "Modules\MainMenu.h"
 #include "Modules\Message.h"
 #include "Modules\MetaruleExtender.h"
@@ -121,6 +122,7 @@ static void InitModules() {
 	manager.add<LoadOrder>();
 	manager.add<LoadGameHook>();
 	manager.add<MainLoopHook>();
+	manager.add<MetaCursorHighlight>();
 	manager.add<ExtraArt>();
 
 	manager.add<EngineTweaks>();

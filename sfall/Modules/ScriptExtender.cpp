@@ -30,6 +30,7 @@
 #include "HookScripts.h"
 #include "LoadGameHook.h"
 #include "MainLoopHook.h"
+#include "MetaCursorHighlight.h"
 #include "Worldmap.h"
 
 #include "SubModules\ObjectName.h"
@@ -380,6 +381,8 @@ static void SetGlobalVarInternal(__int64 var, int val) {
 			itr->second = val;
 		}
 	}
+
+	MetaCursorHighlight::OnSfallGlobalSet(var, val);
 }
 
 void SetGlobalVarInt(DWORD var, int val) {

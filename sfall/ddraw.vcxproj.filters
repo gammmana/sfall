@@ -263,6 +263,9 @@
     <ClInclude Include="Modules\MainLoopHook.h">
       <Filter>Modules</Filter>
     </ClInclude>
+    <ClInclude Include="Modules\MetaCursorHighlight.h">
+      <Filter>Modules</Filter>
+    </ClInclude>
     <ClInclude Include="FalloutEngine\VariableOffsets.h">
       <Filter>FalloutEngine</Filter>
     </ClInclude>
@@ -666,6 +669,9 @@
     </ClCompile>
     <ClCompile Include="stdafx.cpp" />
     <ClCompile Include="Modules\MainLoopHook.cpp">
+      <Filter>Modules</Filter>
+    </ClCompile>
+    <ClCompile Include="Modules\MetaCursorHighlight.cpp">
       <Filter>Modules</Filter>
     </ClCompile>
     <ClCompile Include="Modules\HookScripts\Common.cpp">

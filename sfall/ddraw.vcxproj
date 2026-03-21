@@ -415,6 +415,7 @@
     <ClInclude Include="Modules\Input.h" />
     <ClInclude Include="ModuleManager.h" />
     <ClInclude Include="Modules\MainLoopHook.h" />
+    <ClInclude Include="Modules\MetaCursorHighlight.h" />
     <ClInclude Include="Modules\MetaruleExtender.h" />
     <ClInclude Include="Modules\Module.h" />
     <ClInclude Include="Modules\AI.h" />
@@ -563,6 +564,7 @@
     <ClCompile Include="Modules\DialogDebug.cpp" />
     <ClCompile Include="Modules\Animations.cpp" />
     <ClCompile Include="Modules\MainLoopHook.cpp" />
+    <ClCompile Include="Modules\MetaCursorHighlight.cpp" />
     <ClCompile Include="Modules\MetaruleExtender.cpp" />
     <ClCompile Include="Modules\MiscPatches.cpp" />
     <ClCompile Include="Modules\Karma.cpp" />
