@@ -33,6 +33,7 @@
 #include "..\Modules\LoadGameHook.h"
 #include "..\Modules\Drugs.h"
 #include "..\Modules\HeroAppearance.h"
+#include "..\Modules\MainLoopHook.h"
 #include "..\Modules\ScriptExtender.h"
 
 #include "..\HRP\Init.h"
@@ -46,6 +47,8 @@ static std::ofstream consoleFile;
 static long printCount = 0;
 static bool messageBoxToDebugLogEnabled = false;
 static bool floatingTextToDebugLogEnabled = false;
+static bool sneakModeStateInitialized = false;
+static bool previousSneakModeState = false;
 
 static constexpr long kConsoleFlushInterval = 20;
 static constexpr size_t kMessageWrapWidth = 30;
@@ -146,6 +149,42 @@ static void PrintBoxedLinesToDebugLog(const char* title, const std::vector<std::
 	}
 
 	fo::func::debug_printf(kCharacterLogBoxSeparator);
+}
+
+static void ResetSneakModeTracking() {
+	sneakModeStateInitialized = false;
+	previousSneakModeState = false;
+}
+
+static void PrintSneakModeToDebugLog(bool isSneaking) {
+	PrintBoxedLinesToDebugLog("Sneak Mode", {
+		std::string("State: ") + (isSneaking ? "On" : "Off")
+	});
+}
+
+static void PrintSneakModeMessage(bool isSneaking) {
+	fo::func::display_print(isSneaking ? "Sneak on." : "Sneak off.");
+}
+
+static void MaybeLogSneakModeChange() {
+	if (!IsGameLoaded() || !fo::var::obj_dude) {
+		ResetSneakModeTracking();
+		return;
+	}
+
+	// Track the actual player sneak toggle, not the sneak_working success check.
+	const bool isSneaking = (fo::func::is_pc_flag(0) != 0);
+	if (!sneakModeStateInitialized) {
+		previousSneakModeState = isSneaking;
+		sneakModeStateInitialized = true;
+		return;
+	}
+
+	if (previousSneakModeState == isSneaking) return;
+
+	previousSneakModeState = isSneaking;
+	PrintSneakModeMessage(isSneaking);
+	PrintSneakModeToDebugLog(isSneaking);
 }
 
 static const char* GetMessageText(const fo::MessageList* msgList, long msgId, const char* fallback) {
@@ -701,12 +740,18 @@ void Console::init() {
 		HookCall(0x45947E, op_float_msg_text_object_hook);
 		HookCall(0x495E34, partyMemberCopyLevelInfo_text_object_hook);
 	}
+
+	LoadGameHook::OnGameReset() += ResetSneakModeTracking;
+	LoadGameHook::OnGameExit() += ResetSneakModeTracking;
+	MainLoopHook::OnMainLoop() += MaybeLogSneakModeChange;
+	MainLoopHook::OnCombatLoop() += MaybeLogSneakModeChange;
 }
 
 void Console::exit() {
 	if (consoleFile.is_open()) consoleFile.close();
 	messageBoxToDebugLogEnabled = false;
 	floatingTextToDebugLogEnabled = false;
+	ResetSneakModeTracking();
 }
 
 }
