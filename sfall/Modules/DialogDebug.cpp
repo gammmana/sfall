@@ -106,6 +106,12 @@ struct GameDialogOptionEntry {
 
 static_assert(sizeof(GameDialogReviewEntry) == 24, "Unexpected GameDialogReviewEntry size.");
 static_assert(sizeof(GameDialogOptionEntry) == 928, "Unexpected GameDialogOptionEntry size.");
+static_assert(kVarOptionEntries > kVarReplyText, "Unexpected dialog reply text layout.");
+
+constexpr size_t kReplyTextMaxLength = static_cast<size_t>(kVarOptionEntries - kVarReplyText);
+constexpr size_t kOptionTextMaxLength = sizeof(GameDialogOptionEntry::text);
+constexpr size_t kReviewTextMaxLength = kReplyTextMaxLength;
+constexpr size_t kSpeakerNameMaxLength = 256;
 
 template <typename T>
 T& Raw(DWORD addr) {
@@ -125,6 +131,12 @@ static bool dialogNodeSeen = false;
 static uint32_t dialogSessionCounter = 0;
 static uint32_t dialogNodeCounter = 0;
 static uint64_t lastDialogSignature = 0;
+
+struct BoundedTextView {
+	const unsigned char* bytes = nullptr;
+	size_t length = 0;
+	bool terminated = false;
+};
 
 static void __stdcall TickersAdd(TickerProc proc) {
 	__asm {
@@ -163,14 +175,28 @@ static WindowSnapshot GetWindowSnapshot(int windowId) {
 	return snapshot;
 }
 
-static std::string EscapeForLog(const char* text) {
+// Dialog strings are engine-owned, so cap every read to known storage bounds.
+static BoundedTextView GetBoundedTextView(const char* text, size_t maxLen) {
+	BoundedTextView view;
+	if (!text) return view;
+
+	view.bytes = reinterpret_cast<const unsigned char*>(text);
+	while (view.length < maxLen && view.bytes[view.length] != '\0') {
+		view.length++;
+	}
+	view.terminated = (view.length < maxLen && view.bytes[view.length] == '\0');
+	return view;
+}
+
+static std::string EscapeForLog(const char* text, size_t maxLen) {
 	if (!text) return "<null>";
 
+	const BoundedTextView view = GetBoundedTextView(text, maxLen);
 	std::string out;
-	out.reserve(128);
+	out.reserve(view.length + 16);
 
-	for (const unsigned char* ch = reinterpret_cast<const unsigned char*>(text); *ch != '\0'; ++ch) {
-		switch (*ch) {
+	for (size_t i = 0; i < view.length; i++) {
+		switch (view.bytes[i]) {
 		case '\\':
 			out += "\\\\";
 			break;
@@ -187,18 +213,26 @@ static std::string EscapeForLog(const char* text) {
 			out += "\\\"";
 			break;
 		default:
-			if (*ch >= 0x20 && *ch <= 0x7E) {
-				out.push_back(static_cast<char>(*ch));
+			if (view.bytes[i] >= 0x20 && view.bytes[i] <= 0x7E) {
+				out.push_back(static_cast<char>(view.bytes[i]));
 			} else {
 				char buf[5];
-				sprintf_s(buf, "\\x%02X", *ch);
+				sprintf_s(buf, "\\x%02X", view.bytes[i]);
 				out += buf;
 			}
 			break;
 		}
 	}
 
+	if (!view.terminated) out += "<truncated>";
+
 	return out;
+}
+
+static std::string FormatRawReviewPointer(const char* text) {
+	char buf[32];
+	sprintf_s(buf, "<raw_review_ptr 0x%08X>", reinterpret_cast<DWORD>(text));
+	return buf;
 }
 
 static const char* ReactionToString(int reaction) {
@@ -215,9 +249,17 @@ static const char* ResolveReviewText(const GameDialogReviewEntry& entry, bool op
 	const int messageId = option ? entry.optionMessageId : entry.replyMessageId;
 
 	if (messageListId == -3) return nullptr;
-	if (messageListId == -4) return option ? entry.optionText : entry.replyText;
+	if (messageListId == -4) return nullptr;
 
 	return ScrGetMsgStr(messageListId, messageId);
+}
+
+static bool ReviewTextUsesRawPointer(const GameDialogReviewEntry& entry, bool option) {
+	return (option ? entry.optionMessageListId : entry.replyMessageListId) == -4;
+}
+
+static const char* GetReviewRawTextPointer(const GameDialogReviewEntry& entry, bool option) {
+	return option ? entry.optionText : entry.replyText;
 }
 
 static bool IsDialogSessionActive() {
@@ -255,18 +297,18 @@ static uint64_t HashPod(uint64_t hash, const T& value) {
 	return HashBytes(hash, &value, sizeof(value));
 }
 
-static uint64_t HashCString(uint64_t hash, const char* text) {
+static uint64_t HashCString(uint64_t hash, const char* text, size_t maxLen) {
 	if (!text) {
 		const unsigned char marker = 0xFF;
 		return HashBytes(hash, &marker, sizeof(marker));
 	}
 
-	for (const unsigned char* ch = reinterpret_cast<const unsigned char*>(text); *ch != '\0'; ++ch) {
-		hash ^= *ch;
-		hash *= kFnvPrime;
+	const BoundedTextView view = GetBoundedTextView(text, maxLen);
+	if (view.length > 0) {
+		hash = HashBytes(hash, view.bytes, view.length);
 	}
 
-	const unsigned char terminator = 0;
+	const unsigned char terminator = view.terminated ? 0x00 : 0xFE;
 	return HashBytes(hash, &terminator, sizeof(terminator));
 }
 
@@ -276,7 +318,7 @@ static uint64_t ComputeDialogSignature() {
 	hash = HashPod(hash, Raw<int>(kVarReviewEntriesLength));
 	hash = HashPod(hash, Raw<int>(kVarReplyMessageListId));
 	hash = HashPod(hash, Raw<int>(kVarReplyMessageId));
-	hash = HashCString(hash, reinterpret_cast<const char*>(kVarReplyText));
+	hash = HashCString(hash, reinterpret_cast<const char*>(kVarReplyText), kReplyTextMaxLength);
 	hash = HashPod(hash, fo::var::gdNumOptions);
 	hash = HashPod(hash, fo::var::dialogue_state);
 	hash = HashPod(hash, fo::var::dialogue_switch_mode);
@@ -291,7 +333,7 @@ static uint64_t ComputeDialogSignature() {
 		hash = HashPod(hash, option.proc);
 		hash = HashPod(hash, option.top);
 		hash = HashPod(hash, option.bottom);
-		hash = HashCString(hash, option.text);
+		hash = HashCString(hash, option.text, kOptionTextMaxLength);
 	}
 
 	return hash;
@@ -331,6 +373,10 @@ static void LogDialogSnapshot(bool isOpenEvent) {
 	const GameDialogReviewEntry* lastReview = (reviewEntriesLength > 0) ? &reviewEntries[reviewEntriesLength - 1] : nullptr;
 
 	const char* previousChoiceText = (lastReview) ? ResolveReviewText(*lastReview, true) : nullptr;
+	const bool previousChoiceUsesRawPointer = (lastReview) ? ReviewTextUsesRawPointer(*lastReview, true) : false;
+	const char* previousChoiceRawText = (lastReview && previousChoiceUsesRawPointer)
+		? GetReviewRawTextPointer(*lastReview, true)
+		: nullptr;
 	const int previousChoiceList = (lastReview) ? lastReview->optionMessageListId : -3;
 	const int previousChoiceMessage = (lastReview) ? lastReview->optionMessageId : -3;
 
@@ -350,7 +396,7 @@ static void LogDialogSnapshot(bool isOpenEvent) {
 	fo::func::debug_printf(
 		"[DIALOG_DUMP] speaker ptr=0x%08X name=\"%s\" pid=%d tile=%ld elev=%ld party=%d sid=%d head_fid=%d caps=%d barter_mod=%d\n",
 		reinterpret_cast<DWORD>(speaker),
-		EscapeForLog(speakerName).c_str(),
+		EscapeForLog(speakerName, kSpeakerNameMaxLength).c_str(),
 		speakerPid,
 		speakerTile,
 		speakerElevation,
@@ -411,17 +457,20 @@ static void LogDialogSnapshot(bool isOpenEvent) {
 		"[DIALOG_DUMP] npc_message list=%d msg=%d text=\"%s\"\n",
 		Raw<int>(kVarReplyMessageListId),
 		Raw<int>(kVarReplyMessageId),
-		EscapeForLog(reinterpret_cast<const char*>(kVarReplyText)).c_str()
+		EscapeForLog(reinterpret_cast<const char*>(kVarReplyText), kReplyTextMaxLength).c_str()
 	);
 
 	if (previousChoiceList == -3) {
 		fo::func::debug_printf("[DIALOG_DUMP] previous_choice none\n");
 	} else {
+		const std::string previousChoiceLogText = previousChoiceUsesRawPointer
+			? FormatRawReviewPointer(previousChoiceRawText)
+			: EscapeForLog(previousChoiceText, kReviewTextMaxLength);
 		fo::func::debug_printf(
 			"[DIALOG_DUMP] previous_choice list=%d msg=%d text=\"%s\"\n",
 			previousChoiceList,
 			previousChoiceMessage,
-			EscapeForLog(previousChoiceText).c_str()
+			previousChoiceLogText.c_str()
 		);
 	}
 
@@ -441,7 +490,7 @@ static void LogDialogSnapshot(bool isOpenEvent) {
 			optionsWindow.valid ? optionsWindow.y + option.top : 0,
 			optionsWindow.valid ? optionsWindow.x + kDialogOptionsTextRight : 0,
 			optionsWindow.valid ? optionsWindow.y + option.bottom - 1 : 0,
-			EscapeForLog(option.text).c_str()
+			EscapeForLog(option.text, kOptionTextMaxLength).c_str()
 		);
 	}
 
