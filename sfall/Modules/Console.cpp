@@ -47,8 +47,14 @@ static std::ofstream consoleFile;
 static long printCount = 0;
 static bool messageBoxToDebugLogEnabled = false;
 static bool floatingTextToDebugLogEnabled = false;
+static bool playerLocationToDebugLogEnabled = false;
 static bool sneakModeStateInitialized = false;
 static bool previousSneakModeState = false;
+static bool playerLocationStateInitialized = false;
+static long previousPlayerMapNumber = -1;
+static long previousPlayerElevation = -1;
+static std::string previousPlayerMapFile;
+static std::string previousPlayerMapLabel;
 
 static constexpr long kConsoleFlushInterval = 20;
 static constexpr size_t kMessageWrapWidth = 30;
@@ -154,6 +160,79 @@ static void PrintBoxedLinesToDebugLog(const char* title, const std::vector<std::
 static void ResetSneakModeTracking() {
 	sneakModeStateInitialized = false;
 	previousSneakModeState = false;
+}
+
+static void ResetPlayerLocationTracking() {
+	playerLocationStateInitialized = false;
+	previousPlayerMapNumber = -1;
+	previousPlayerElevation = -1;
+	previousPlayerMapFile.clear();
+	previousPlayerMapLabel.clear();
+}
+
+static std::string GetCurrentMapFileName() {
+	size_t length = 0;
+	while (length < sizeof(LoadGameHook::mapLoadingName) && LoadGameHook::mapLoadingName[length] != '\0') {
+		length++;
+	}
+	return std::string(LoadGameHook::mapLoadingName, length);
+}
+
+static std::string GetCurrentMapLabel(long mapNumber) {
+	const char* shortName = fo::func::map_get_short_name(mapNumber);
+	return (shortName && *shortName) ? shortName : std::string();
+}
+
+static std::string FormatMapDescriptor(long mapNumber, const std::string& mapFile, const std::string& mapLabel) {
+	if (!mapFile.empty()) {
+		if (!mapLabel.empty() && mapLabel != mapFile) {
+			return mapFile + " (" + mapLabel + ")";
+		}
+		return mapFile;
+	}
+	if (!mapLabel.empty()) return mapLabel;
+	return "Map #" + std::to_string(mapNumber);
+}
+
+static void PrintPlayerLocationToDebugLog(bool isMapTransition, long mapNumber, const std::string& mapFile, const std::string& mapLabel, long elevation) {
+	std::vector<std::string> lines;
+	if (playerLocationStateInitialized) {
+		lines.emplace_back("Previous: " + FormatMapDescriptor(previousPlayerMapNumber, previousPlayerMapFile, previousPlayerMapLabel)
+			+ " @ elevation " + std::to_string(previousPlayerElevation));
+	}
+	lines.emplace_back("MapName: " + FormatMapDescriptor(mapNumber, mapFile, mapLabel));
+	lines.emplace_back("Elevation: " + std::to_string(elevation));
+
+	const char* title = isMapTransition ? "Player Location: Map Transition" : "Player Location: Elevation Change";
+	PrintBoxedLinesToDebugLog(title, lines);
+}
+
+static void MaybeLogPlayerLocationChange() {
+	if (!playerLocationToDebugLogEnabled) return;
+	if (LoadGameHook::IsMapLoading()) return;
+	if (!IsGameLoaded() || !fo::var::obj_dude || InWorldMap()) {
+		ResetPlayerLocationTracking();
+		return;
+	}
+
+	const long mapNumber = static_cast<long>(fo::var::map_number);
+	const long elevation = fo::var::obj_dude->elevation;
+	const std::string mapFile = GetCurrentMapFileName();
+	const std::string mapLabel = GetCurrentMapLabel(mapNumber);
+	const bool mapChanged = !playerLocationStateInitialized
+		|| previousPlayerMapNumber != mapNumber
+		|| previousPlayerMapFile != mapFile;
+	const bool elevationChanged = !playerLocationStateInitialized
+		|| previousPlayerElevation != elevation;
+
+	if (!mapChanged && !elevationChanged) return;
+
+	PrintPlayerLocationToDebugLog(mapChanged, mapNumber, mapFile, mapLabel, elevation);
+	playerLocationStateInitialized = true;
+	previousPlayerMapNumber = mapNumber;
+	previousPlayerElevation = elevation;
+	previousPlayerMapFile = mapFile;
+	previousPlayerMapLabel = mapLabel;
 }
 
 static void PrintSneakModeToDebugLog(bool isSneaking) {
@@ -719,6 +798,7 @@ void Console::init() {
 		(floatingTextToDebugLogSetting == kFloatingTextToDebugLogInherit)
 		? messageBoxToDebugLogEnabled
 		: (std::atoi(floatingTextToDebugLogSetting.c_str()) != 0);
+	playerLocationToDebugLogEnabled = (IniReader::GetIntDefaultConfig("Debugging", "PlayerLocationToDebugLog", 1) != 0);
 
 	auto path = IniReader::GetConfigString("Misc", "ConsoleOutputPath", "");
 	if (!path.empty()) {
@@ -743,15 +823,21 @@ void Console::init() {
 
 	LoadGameHook::OnGameReset() += ResetSneakModeTracking;
 	LoadGameHook::OnGameExit() += ResetSneakModeTracking;
+	LoadGameHook::OnGameReset() += ResetPlayerLocationTracking;
+	LoadGameHook::OnGameExit() += ResetPlayerLocationTracking;
 	MainLoopHook::OnMainLoop() += MaybeLogSneakModeChange;
 	MainLoopHook::OnCombatLoop() += MaybeLogSneakModeChange;
+	MainLoopHook::OnMainLoop() += MaybeLogPlayerLocationChange;
+	MainLoopHook::OnCombatLoop() += MaybeLogPlayerLocationChange;
 }
 
 void Console::exit() {
 	if (consoleFile.is_open()) consoleFile.close();
 	messageBoxToDebugLogEnabled = false;
 	floatingTextToDebugLogEnabled = false;
+	playerLocationToDebugLogEnabled = false;
 	ResetSneakModeTracking();
+	ResetPlayerLocationTracking();
 }
 
 }
